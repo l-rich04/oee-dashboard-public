@@ -245,3 +245,16 @@ def add_update(issue_id: int, data: IssueUpdateCreate, db: Session = Depends(get
     db.commit()
     db.refresh(update)
     return update
+
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+import os
+
+frontend_path = os.path.join(os.path.dirname(__file__), "frontend", "dist")
+
+if os.path.exists(frontend_path):
+    app.mount("/assets", StaticFiles(directory=os.path.join(frontend_path, "assets")), name="assets")
+
+    @app.get("/{full_path:path}")
+    def serve_frontend(full_path: str):
+        return FileResponse(os.path.join(frontend_path, "index.html"))
