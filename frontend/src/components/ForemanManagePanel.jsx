@@ -72,10 +72,14 @@ export default function ForemanManagePanel({ onChanged }) {
 
             <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
               <input
-                type="text" value={newName}
+                type="text"
+                value={newName}
                 onChange={e => setNewName(e.target.value)}
                 placeholder="New foreman name"
-                style={{ flex: 1, padding: "8px 10px", fontSize: 13, border: "1px solid #ddd", borderRadius: 8, fontFamily: "inherit" }}
+                style={{
+                  flex: 1, padding: "8px 10px", fontSize: 13,
+                  border: "1px solid #ddd", borderRadius: 8, fontFamily: "inherit",
+                }}
               />
               <button onClick={handleAdd} disabled={saving || !newName.trim()} style={{
                 padding: "8px 16px",
@@ -99,8 +103,9 @@ export default function ForemanManagePanel({ onChanged }) {
                 }}>
                   <span>{f.name}</span>
                   <button onClick={() => handleDelete(f.id)} style={{
-                    padding: "3px 8px", fontSize: 11, border: "1px solid #E24B4A",
-                    background: "#FCEBEB", color: "#A32D2D", borderRadius: 6, cursor: "pointer",
+                    padding: "3px 8px", fontSize: 11,
+                    border: "1px solid #E24B4A", background: "#FCEBEB",
+                    color: "#A32D2D", borderRadius: 6, cursor: "pointer",
                   }}>
                     Delete
                   </button>

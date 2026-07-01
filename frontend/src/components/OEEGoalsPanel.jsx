@@ -84,56 +84,58 @@ export default function OEEGoalsPanel({ onSaved }) {
   }
 
   async function handleDeleteHistory(id) {
-    try {
-      const res = await fetch(`http://localhost:8000/oee/goal-history/${id}`, { method: "DELETE" });
-      if (!res.ok) throw new Error(await res.text());
-      load();
-      if (onSaved) onSaved();
-    } catch (err) {
-      console.error("Delete error:", err);
-    }
+  try {
+    const res = await fetch(`http://localhost:8000/oee/goal-history/${id}`, {
+      method: "DELETE",
+    });
+    if (!res.ok) throw new Error(await res.text());
+    load();
+    if (onSaved) onSaved();
+  } catch (err) {
+    console.error("Delete error:", err);
   }
+}
 
   async function handleSave() {
-    setSaving(true);
-    try {
-      await updateOEEGoals({
+  setSaving(true);
+  try {
+    await updateOEEGoals({
+      annual_dpu_goal:    Number(goals.annual_dpu_goal),
+      quarterly_dpu_goal: Number(goals.quarterly_dpu_goal),
+      weekly_trucks_min:  Number(goals.weekly_trucks_min),
+      weekly_trucks_max:  Number(goals.weekly_trucks_max),
+    });
+    load();
+    if (onSaved) onSaved();
+    closeModal();
+  } finally {
+    setSaving(false);
+  }
+}
+
+async function handleAddHistory() {
+  setSaving(true);
+  try {
+    const res = await fetch("http://localhost:8000/oee/goal-history", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id:                 0,
+        effective_date:     effectiveDate,
         annual_dpu_goal:    Number(goals.annual_dpu_goal),
         quarterly_dpu_goal: Number(goals.quarterly_dpu_goal),
         weekly_trucks_min:  Number(goals.weekly_trucks_min),
         weekly_trucks_max:  Number(goals.weekly_trucks_max),
-      });
-      load();
-      if (onSaved) onSaved();
-      closeModal();
-    } finally {
-      setSaving(false);
-    }
+        created_at:         new Date().toISOString(),
+      }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    load();
+    if (onSaved) onSaved();
+  } finally {
+    setSaving(false);
   }
-
-  async function handleAddHistory() {
-    setSaving(true);
-    try {
-      const res = await fetch("http://localhost:8000/oee/goal-history", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          effective_date:     effectiveDate,
-          annual_dpu_goal:    Number(goals.annual_dpu_goal),
-          quarterly_dpu_goal: Number(goals.quarterly_dpu_goal),
-          weekly_trucks_min:  Number(goals.weekly_trucks_min),
-          weekly_trucks_max:  Number(goals.weekly_trucks_max),
-        }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      load();
-      if (onSaved) onSaved();
-    } catch (err) {
-      console.error("Add history error:", err);
-    } finally {
-      setSaving(false);
-    }
-  }
+}
 
   if (!goals) return null;
 
@@ -185,9 +187,14 @@ export default function OEEGoalsPanel({ onSaved }) {
                 Effective from
               </label>
               <input
-                type="date" value={effectiveDate}
+                type="date"
+                value={effectiveDate}
                 onChange={e => setEffectiveDate(e.target.value)}
-                style={{ width: "100%", padding: "8px 10px", fontSize: 13, border: "1px solid #ddd", borderRadius: 8, fontFamily: "inherit", boxSizing: "border-box" }}
+                style={{
+                  width: "100%", padding: "8px 10px", fontSize: 13,
+                  border: "1px solid #ddd", borderRadius: 8,
+                  fontFamily: "inherit", boxSizing: "border-box",
+                }}
               />
               <p style={{ fontSize: 11, color: "#aaa", margin: "6px 0 0" }}>
                 Set the date these goals become active. Use the start of a quarter for quarterly goal changes.
@@ -202,11 +209,19 @@ export default function OEEGoalsPanel({ onSaved }) {
                 { label: "Weekly trucks max",  field: "weekly_trucks_max",  step: "1",    hint: null },
               ].map(({ label, field, step, hint }) => (
                 <div key={field}>
-                  <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#555", marginBottom: 4 }}>{label}</label>
+                  <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#555", marginBottom: 4 }}>
+                    {label}
+                  </label>
                   <input
-                    type="number" step={step} value={goals[field]}
+                    type="number"
+                    step={step}
+                    value={goals[field]}
                     onChange={e => setGoals(prev => ({ ...prev, [field]: e.target.value }))}
-                    style={{ width: "100%", padding: "8px 10px", fontSize: 13, border: "1px solid #ddd", borderRadius: 8, fontFamily: "inherit", boxSizing: "border-box" }}
+                    style={{
+                      width: "100%", padding: "8px 10px", fontSize: 13,
+                      border: "1px solid #ddd", borderRadius: 8,
+                      fontFamily: "inherit", boxSizing: "border-box",
+                    }}
                   />
                   {hint && <p style={{ fontSize: 11, color: "#aaa", margin: "4px 0 0" }}>{hint}</p>}
                 </div>
@@ -214,28 +229,28 @@ export default function OEEGoalsPanel({ onSaved }) {
             </div>
 
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 24 }}>
-              <button onClick={handleSave} disabled={saving} style={{
-                padding: "8px 20px", background: "#1D9E75", color: "#fff",
-                border: "none", borderRadius: 8, fontSize: 13, fontWeight: 500,
-                cursor: "pointer", fontFamily: "inherit",
-              }}>
-                {saving ? "Saving…" : "Save goals"}
-              </button>
-              <button onClick={handleAddHistory} disabled={saving} style={{
-                padding: "8px 16px", background: "#fff", border: "1px solid #378ADD",
-                borderRadius: 8, fontSize: 13, cursor: "pointer",
-                fontFamily: "inherit", color: "#0C447C",
-              }}>
-                + Add to history
-              </button>
-              <button onClick={closeModal} style={{
-                padding: "8px 16px", background: "#fff", border: "0.5px solid #ddd",
-                borderRadius: 8, fontSize: 13, cursor: "pointer",
-                fontFamily: "inherit", color: "#555",
-              }}>
-                Cancel
-              </button>
-            </div>
+  <button onClick={handleSave} disabled={saving} style={{
+    padding: "8px 20px", background: "#1D9E75", color: "#fff",
+    border: "none", borderRadius: 8, fontSize: 13,
+    fontWeight: 500, cursor: "pointer", fontFamily: "inherit",
+  }}>
+    {saving ? "Saving…" : "Save goals"}
+  </button>
+  <button onClick={handleAddHistory} disabled={saving} style={{
+    padding: "8px 16px", background: "#fff", border: "1px solid #378ADD",
+    borderRadius: 8, fontSize: 13, cursor: "pointer",
+    fontFamily: "inherit", color: "#0C447C",
+  }}>
+    + Add to history
+  </button>
+  <button onClick={closeModal} style={{
+    padding: "8px 16px", background: "#fff", border: "0.5px solid #ddd",
+    borderRadius: 8, fontSize: 13, cursor: "pointer",
+    fontFamily: "inherit", color: "#555",
+  }}>
+    Cancel
+  </button>
+</div>
 
             {sortedHistory.length > 0 && (
               <div style={{ borderTop: "0.5px solid #eee", paddingTop: 16 }}>
@@ -248,7 +263,7 @@ export default function OEEGoalsPanel({ onSaved }) {
                         <th style={{ padding: "6px 10px", fontWeight: 500, color: "#888", textAlign: "left" }}>Period</th>
                         <th style={{ padding: "6px 10px", fontWeight: 500, color: "#888", textAlign: "right" }}>Annual</th>
                         <th style={{ padding: "6px 10px", fontWeight: 500, color: "#888", textAlign: "right" }}>Quarterly</th>
-                        <th style={{ padding: "6px 10px", width: 100 }}></th>
+                        <th style={{ padding: "6px 10px", width: 80 }}></th>
                       </tr>
                     </thead>
                     <tbody>
@@ -257,31 +272,50 @@ export default function OEEGoalsPanel({ onSaved }) {
                           {editingId === row.id ? (
                             <>
                               <td style={{ padding: "6px 8px" }}>
-                                <input type="date" value={editValues.effective_date}
+                                <input
+                                  type="date"
+                                  value={editValues.effective_date}
                                   onChange={e => setEditValues(p => ({ ...p, effective_date: e.target.value }))}
-                                  style={{ ...inputStyle, width: 120 }} />
+                                  style={{ ...inputStyle, width: 120 }}
+                                />
                               </td>
-                              <td style={{ padding: "6px 8px", color: "#888" }}>{getPeriodLabel(editValues.effective_date)}</td>
+                              <td style={{ padding: "6px 8px", color: "#888" }}>
+                                {getPeriodLabel(editValues.effective_date)}
+                              </td>
                               <td style={{ padding: "6px 8px" }}>
-                                <input type="number" step="0.01" value={editValues.annual_dpu_goal}
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  value={editValues.annual_dpu_goal}
                                   onChange={e => setEditValues(p => ({ ...p, annual_dpu_goal: e.target.value }))}
-                                  style={{ ...inputStyle, width: 60 }} />
+                                  style={{ ...inputStyle, width: 60 }}
+                                />
                               </td>
                               <td style={{ padding: "6px 8px" }}>
-                                <input type="number" step="0.01" value={editValues.quarterly_dpu_goal}
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  value={editValues.quarterly_dpu_goal}
                                   onChange={e => setEditValues(p => ({ ...p, quarterly_dpu_goal: e.target.value }))}
-                                  style={{ ...inputStyle, width: 60 }} />
+                                  style={{ ...inputStyle, width: 60 }}
+                                />
                               </td>
                               <td style={{ padding: "6px 8px" }}>
                                 <div style={{ display: "flex", gap: 4 }}>
                                   <button onClick={saveEdit} disabled={saving} style={{
-                                    padding: "3px 8px", fontSize: 11, border: "1px solid #1D9E75",
-                                    background: "#E1F5EE", color: "#0F6E56", borderRadius: 6, cursor: "pointer",
-                                  }}>Save</button>
+                                    padding: "3px 8px", fontSize: 11,
+                                    border: "1px solid #1D9E75", background: "#E1F5EE",
+                                    color: "#0F6E56", borderRadius: 6, cursor: "pointer",
+                                  }}>
+                                    Save
+                                  </button>
                                   <button onClick={() => { setEditingId(null); setEditValues({}); }} style={{
-                                    padding: "3px 6px", fontSize: 11, border: "0.5px solid #ddd",
-                                    background: "#fff", color: "#888", borderRadius: 6, cursor: "pointer",
-                                  }}>✕</button>
+                                    padding: "3px 6px", fontSize: 11,
+                                    border: "0.5px solid #ddd", background: "#fff",
+                                    color: "#888", borderRadius: 6, cursor: "pointer",
+                                  }}>
+                                    ✕
+                                  </button>
                                 </div>
                               </td>
                             </>
@@ -290,7 +324,10 @@ export default function OEEGoalsPanel({ onSaved }) {
                               <td style={{ padding: "6px 10px", color: "#333" }}>
                                 {row.effective_date}
                                 {i === 0 && (
-                                  <span style={{ fontSize: 10, background: "#E1F5EE", color: "#0F6E56", padding: "1px 6px", borderRadius: 8, marginLeft: 6, fontWeight: 500 }}>
+                                  <span style={{
+                                    fontSize: 10, background: "#E1F5EE", color: "#0F6E56",
+                                    padding: "1px 6px", borderRadius: 8, marginLeft: 6, fontWeight: 500,
+                                  }}>
                                     current
                                   </span>
                                 )}
@@ -300,15 +337,21 @@ export default function OEEGoalsPanel({ onSaved }) {
                               <td style={{ padding: "6px 10px", textAlign: "right", color: "#888" }}>{Number(row.quarterly_dpu_goal).toFixed(2)}</td>
                               <td style={{ padding: "6px 10px" }}>
                                 <div style={{ display: "flex", gap: 4 }}>
-                                  <button onClick={() => startEdit(row)} style={{
-                                    padding: "3px 8px", fontSize: 11, border: "1px solid #378ADD",
-                                    background: "#E6F1FB", color: "#0C447C", borderRadius: 6, cursor: "pointer",
-                                  }}>Edit</button>
-                                  <button onClick={() => handleDeleteHistory(row.id)} style={{
-                                    padding: "3px 8px", fontSize: 11, border: "1px solid #E24B4A",
-                                    background: "#FCEBEB", color: "#A32D2D", borderRadius: 6, cursor: "pointer",
-                                  }}>Delete</button>
-                                </div>
+  <button onClick={() => startEdit(row)} style={{
+    padding: "3px 8px", fontSize: 11,
+    border: "1px solid #378ADD", background: "#E6F1FB",
+    color: "#0C447C", borderRadius: 6, cursor: "pointer",
+  }}>
+    Edit
+  </button>
+  <button onClick={() => handleDeleteHistory(row.id)} style={{
+    padding: "3px 8px", fontSize: 11,
+    border: "1px solid #E24B4A", background: "#FCEBEB",
+    color: "#A32D2D", borderRadius: 6, cursor: "pointer",
+  }}>
+    Delete
+  </button>
+</div>
                               </td>
                             </>
                           )}
@@ -319,6 +362,7 @@ export default function OEEGoalsPanel({ onSaved }) {
                 </div>
               </div>
             )}
+
           </div>
         </div>
       )}

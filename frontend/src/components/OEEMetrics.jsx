@@ -132,9 +132,11 @@ export default function OEEMetrics({ summary }) {
 
   return (
     <div>
+
+      {/* Metrics row */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(8, 1fr)", gap: 12, marginBottom: 24 }}>
         <MetricCard label="Overall OEE"  value={`${summary.oee}%`}          sub="Last week"                   color={oeeColor} />
-        <MetricCard label="Availability" value={`${summary.availability}%`} sub="Excl. indirect & rework"     color={summary.availability >= 85 ? "#1D9E75" : "#854F0B"} />
+        <MetricCard label="Availability" value={`${summary.availability}%`} sub="Excl. rework hours"          color={summary.availability >= 85 ? "#1D9E75" : "#854F0B"} />
         <MetricCard label="Performance"  value={`${summary.performance}%`}  sub="Actual vs target"            color={summary.performance >= 85 ? "#1D9E75" : "#854F0B"} />
         <MetricCard label="Quality"      value={`${summary.quality}%`}      sub="Quarterly goal ÷ actual DPU" color={summary.quality >= 85 ? "#1D9E75" : "#854F0B"} />
 
@@ -198,7 +200,9 @@ export default function OEEMetrics({ summary }) {
         </div>
       </div>
 
+      {/* Charts row */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 24 }}>
+
         <div style={{ background: "#fff", border: "0.5px solid #eee", borderRadius: 12, padding: 20 }}>
           <p style={{ fontSize: 13, fontWeight: 500, color: "#555", margin: "0 0 16px" }}>Downtime By Machine (mins)</p>
           {Object.keys(summary.downtime_by_machine).length > 0 ? (
@@ -290,8 +294,12 @@ export default function OEEMetrics({ summary }) {
                       return (
                         <tr key={w.week} style={{ borderBottom: "0.5px solid #f5f5f5" }}>
                           <td style={{ padding: "5px 8px", color: "#555" }}>{w.week}</td>
-                          <td style={{ padding: "5px 8px", textAlign: "right", color: w.trucks >= 14 ? "#1D9E75" : "#A32D2D", fontWeight: 500 }}>{w.trucks}</td>
-                          <td style={{ padding: "5px 8px", textAlign: "right", fontWeight: 500, color }}>{arrow} {w.dpu}</td>
+                          <td style={{ padding: "5px 8px", textAlign: "right", color: w.trucks >= 14 ? "#1D9E75" : "#A32D2D", fontWeight: 500 }}>
+                            {w.trucks}
+                          </td>
+                          <td style={{ padding: "5px 8px", textAlign: "right", fontWeight: 500, color }}>
+                            {arrow} {w.dpu}
+                          </td>
                         </tr>
                       );
                     })}
@@ -311,6 +319,7 @@ export default function OEEMetrics({ summary }) {
             <span style={{ color: "#888" }}>→ No change</span>
           </div>
         </div>
+
       </div>
     </div>
   );

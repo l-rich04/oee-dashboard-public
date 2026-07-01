@@ -58,7 +58,9 @@ function InlineAddRow({ week, onAdded }) {
     <tr style={{ borderBottom: "0.5px solid #f0f0f0", background: "#fafafa" }}>
       <td style={{ padding: "6px 16px" }}>
         <input
-          type="text" maxLength={6} value={wo}
+          type="text"
+          maxLength={6}
+          value={wo}
           onChange={e => setWo(e.target.value.replace(/[^0-9]/g, "").slice(0, 6))}
           placeholder="New work order #"
           style={{ ...inputStyle, width: 160 }}
@@ -66,7 +68,9 @@ function InlineAddRow({ week, onAdded }) {
       </td>
       <td style={{ padding: "6px 16px" }}>
         <input
-          type="number" min="0" value={def}
+          type="number"
+          min="0"
+          value={def}
           onChange={e => setDef(e.target.value)}
           placeholder="Defects"
           style={{ ...inputStyle, width: 80 }}
@@ -74,7 +78,8 @@ function InlineAddRow({ week, onAdded }) {
       </td>
       <td style={{ padding: "6px 16px" }}>
         <button
-          onClick={handleAdd} disabled={!isValid || saving}
+          onClick={handleAdd}
+          disabled={!isValid || saving}
           style={{
             padding: "3px 10px", fontSize: 11,
             border: "1px solid #1D9E75",
@@ -217,9 +222,9 @@ export default function WorkOrderPanel({ onSaved }) {
   const totalDefects    = lastWeek.reduce((sum, wo) => sum + wo.total_defects, 0);
   const defectFreeCount = lastWeek.filter(wo => wo.total_defects === 0).length;
   const dpuRaw          = lastWeek.length > 0 ? totalDefects / lastWeek.length : null;
-  const dpuDisplay      = dpuRaw !== null ? dpuRaw.toFixed(2) : "—";
+  const dpuDisplay       = dpuRaw !== null ? dpuRaw.toFixed(2) : "—";
 
-  const sortedKeys = Object.keys(
+  const sortedKeys  = Object.keys(
     workOrders.reduce((acc, wo) => { acc[wo.week_start] = true; return acc; }, {})
   ).sort((a, b) => b.localeCompare(a));
 
@@ -239,7 +244,7 @@ export default function WorkOrderPanel({ onSaved }) {
     : prevDpuRaw !== null && dpuRaw > prevDpuRaw ? "↑ "
     : "→ ";
 
-  const grouped = workOrders.reduce((acc, wo) => {
+  const grouped     = workOrders.reduce((acc, wo) => {
     if (!acc[wo.week_start]) acc[wo.week_start] = [];
     acc[wo.week_start].push(wo);
     return acc;
@@ -250,6 +255,7 @@ export default function WorkOrderPanel({ onSaved }) {
   return (
     <div style={{ marginBottom: 24 }}>
 
+      {/* ADD MODAL */}
       {showModal && (
         <div
           onClick={e => { if (e.target === e.currentTarget) closeModal(); }}
@@ -266,7 +272,10 @@ export default function WorkOrderPanel({ onSaved }) {
           }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
               <p style={{ fontSize: 15, fontWeight: 500, margin: 0 }}>Add Work Orders</p>
-              <button onClick={closeModal} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#aaa", lineHeight: 1 }}>✕</button>
+              <button onClick={closeModal} style={{
+                background: "none", border: "none", fontSize: 20,
+                cursor: "pointer", color: "#aaa", lineHeight: 1,
+              }}>✕</button>
             </div>
 
             <div style={{
@@ -274,9 +283,12 @@ export default function WorkOrderPanel({ onSaved }) {
               padding: "12px 16px", background: "#f0faf6",
               border: "0.5px solid #1D9E75", borderRadius: 8,
             }}>
-              <label style={{ fontSize: 13, fontWeight: 500, color: "#0F6E56", whiteSpace: "nowrap" }}>Week starting</label>
+              <label style={{ fontSize: 13, fontWeight: 500, color: "#0F6E56", whiteSpace: "nowrap" }}>
+                Week starting
+              </label>
               <input
-                type="date" value={weekStart}
+                type="date"
+                value={weekStart}
                 onChange={e => setWeekStart(e.target.value)}
                 style={{ padding: "7px 10px", fontSize: 13, border: "1px solid #ddd", borderRadius: 8, fontFamily: "inherit" }}
               />
@@ -295,10 +307,15 @@ export default function WorkOrderPanel({ onSaved }) {
                   </thead>
                   <tbody>
                     {rows.map(row => (
-                      <tr key={row.id} style={{ borderBottom: "0.5px solid #f0f0f0", background: isValidRow(row) ? "#f0faf6" : "white" }}>
+                      <tr key={row.id} style={{
+                        borderBottom: "0.5px solid #f0f0f0",
+                        background: isValidRow(row) ? "#f0faf6" : "white",
+                      }}>
                         <td style={{ padding: "6px 12px" }}>
                           <input
-                            type="text" maxLength={6} value={row.work_order_num}
+                            type="text"
+                            maxLength={6}
+                            value={row.work_order_num}
                             onChange={e => updateRow(row.id, "work_order_num", e.target.value)}
                             placeholder="6 digit number"
                             style={{ ...inputStyle, width: 160 }}
@@ -306,7 +323,9 @@ export default function WorkOrderPanel({ onSaved }) {
                         </td>
                         <td style={{ padding: "6px 12px" }}>
                           <input
-                            type="number" min="0" value={row.total_defects}
+                            type="number"
+                            min="0"
+                            value={row.total_defects}
                             onChange={e => updateRow(row.id, "total_defects", e.target.value)}
                             placeholder="e.g. 5"
                             style={{ ...inputStyle, width: 100 }}
@@ -314,7 +333,8 @@ export default function WorkOrderPanel({ onSaved }) {
                         </td>
                         <td style={{ padding: "6px 12px" }}>
                           <button
-                            type="button" onClick={() => removeRow(row.id)}
+                            type="button"
+                            onClick={() => removeRow(row.id)}
                             disabled={rows.length === 1}
                             style={{
                               width: 26, height: 26, border: "0.5px solid #ddd",
@@ -348,7 +368,9 @@ export default function WorkOrderPanel({ onSaved }) {
                   <button type="button" onClick={closeModal} style={{
                     padding: "8px 16px", background: "#fff", border: "0.5px solid #ddd",
                     borderRadius: 8, fontSize: 13, cursor: "pointer", fontFamily: "inherit",
-                  }}>Cancel</button>
+                  }}>
+                    Cancel
+                  </button>
                   <button type="submit" disabled={readyCount === 0 || saving} style={{
                     padding: "8px 20px",
                     background: readyCount > 0 && !saving ? "#1D9E75" : "#ccc",
@@ -361,12 +383,14 @@ export default function WorkOrderPanel({ onSaved }) {
                   </button>
                 </div>
               </div>
+
               {error && <p style={{ color: "#A32D2D", fontSize: 12, margin: "8px 0 0" }}>{error}</p>}
             </form>
           </div>
         </div>
       )}
 
+      {/* DELETE WEEK MODAL */}
       {confirmWeek && (
         <div
           onClick={e => { if (e.target === e.currentTarget) setConfirmWeek(null); }}
@@ -380,7 +404,9 @@ export default function WorkOrderPanel({ onSaved }) {
             width: "90%", maxWidth: 440,
             boxShadow: "0 8px 32px rgba(0,0,0,0.12)",
           }}>
-            <p style={{ fontSize: 15, fontWeight: 500, color: "#A32D2D", margin: "0 0 8px" }}>Delete entire week?</p>
+            <p style={{ fontSize: 15, fontWeight: 500, color: "#A32D2D", margin: "0 0 8px" }}>
+              Delete entire week?
+            </p>
             <p style={{ fontSize: 13, color: "#666", margin: "0 0 24px" }}>
               This will permanently delete all {grouped[confirmWeek]?.length} work orders for the week of {formatWeek(confirmWeek)}. This cannot be undone.
             </p>
@@ -389,16 +415,21 @@ export default function WorkOrderPanel({ onSaved }) {
                 padding: "8px 20px", background: "#E24B4A", color: "#fff",
                 border: "none", borderRadius: 8, cursor: "pointer",
                 fontSize: 13, fontWeight: 500, fontFamily: "inherit",
-              }}>Yes, Delete All</button>
+              }}>
+                Yes, Delete All
+              </button>
               <button onClick={() => setConfirmWeek(null)} style={{
                 padding: "8px 16px", background: "#fff", border: "0.5px solid #ddd",
                 borderRadius: 8, cursor: "pointer", fontSize: 13, fontFamily: "inherit",
-              }}>Cancel</button>
+              }}>
+                Cancel
+              </button>
             </div>
           </div>
         </div>
       )}
 
+      {/* HEADER */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
         <div>
           <h3 style={{ fontSize: 15, fontWeight: 500, margin: "0 0 2px" }}>Work Orders</h3>
@@ -413,15 +444,19 @@ export default function WorkOrderPanel({ onSaved }) {
         </button>
       </div>
 
+      {/* SUMMARY CARDS */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 24, marginBottom: 20 }}>
+
         <div style={{ background: "#fafafa", border: "0.5px solid #eee", borderRadius: 8, padding: "12px 14px" }}>
-          <p style={{ fontSize: 11, color: "#888", margin: "0 0 4px" }}>Trucks Last Week</p>
+          <p style={{ fontSize: 11, color: "#888", margin: "0 0 4px" }}>Trucks</p>
           <p style={{ fontSize: 20, fontWeight: 500, margin: "0 0 4px", color: lastWeek.length >= 14 ? "#1D9E75" : "#A32D2D" }}>
             {lastWeek.length}
           </p>
           <div style={{ display: "flex", justifyContent: "space-between" }}>
             <p style={{ fontSize: 11, color: "#aaa", margin: 0 }}>Last week</p>
-            <p style={{ fontSize: 11, margin: 0, color: "#888" }}>Target: <span style={{ fontWeight: 500, color: "#555" }}>14–18</span></p>
+            <p style={{ fontSize: 11, margin: 0, color: "#888" }}>
+              Target: <span style={{ fontWeight: 500, color: "#555" }}>14–18</span>
+            </p>
           </div>
         </div>
 
@@ -434,7 +469,7 @@ export default function WorkOrderPanel({ onSaved }) {
         </div>
 
         <div style={{ background: "#fafafa", border: "0.5px solid #eee", borderRadius: 8, padding: "12px 14px" }}>
-          <p style={{ fontSize: 11, color: "#888", margin: "0 0 4px" }}>DPU Last Week</p>
+          <p style={{ fontSize: 11, color: "#888", margin: "0 0 4px" }}>DPU</p>
           <p style={{ fontSize: 20, fontWeight: 500, margin: "0 0 4px", color: dpuColor }}>
             {dpuArrow}{dpuDisplay}
           </p>
@@ -445,6 +480,7 @@ export default function WorkOrderPanel({ onSaved }) {
             </p>
           </div>
         </div>
+
       </div>
 
       {successMsg && (
@@ -453,6 +489,7 @@ export default function WorkOrderPanel({ onSaved }) {
         </div>
       )}
 
+      {/* HISTORY TOGGLE */}
       <button
         onClick={() => setShowHistory(prev => !prev)}
         style={{
@@ -473,152 +510,183 @@ export default function WorkOrderPanel({ onSaved }) {
       )}
 
       {showHistory && (
-        <div style={{
-          maxHeight: sortedWeeks.length > 6 ? 320 : "none",
-          overflowY: sortedWeeks.length > 6 ? "auto" : "visible",
-        }}>
-          {sortedWeeks.map((week, idx) => {
-            const wos         = grouped[week];
-            const weekDefects = wos.reduce((sum, wo) => sum + wo.total_defects, 0);
-            const weekDpu     = wos.length > 0 ? weekDefects / wos.length : 0;
+<div style={{
+  maxHeight: sortedWeeks.length > 6 ? 320 : "none",
+  overflowY: sortedWeeks.length > 6 ? "auto" : "visible",
+  paddingRight: sortedWeeks.length > 6 ? 4 : 0,
+}}>
+{sortedWeeks.map((week, idx) => {
+        const wos         = grouped[week];
+        const weekDefects = wos.reduce((sum, wo) => sum + wo.total_defects, 0);
+        const weekDpu     = wos.length > 0 ? weekDefects / wos.length : 0;
 
-            const prevWeek2 = sortedWeeks[idx + 1];
-            const prevWos2  = prevWeek2 ? grouped[prevWeek2] : null;
-            const prevDpu2  = prevWos2
-              ? prevWos2.reduce((sum, wo) => sum + wo.total_defects, 0) / prevWos2.length
-              : null;
+        const prevWeek2  = sortedWeeks[idx + 1];
+        const prevWos2   = prevWeek2 ? grouped[prevWeek2] : null;
+        const prevDpu2   = prevWos2
+          ? prevWos2.reduce((sum, wo) => sum + wo.total_defects, 0) / prevWos2.length
+          : null;
 
-            let dpuColor2 = "#888";
-            let dpuLabel  = "";
-            if (prevDpu2 !== null) {
-              if (weekDpu < prevDpu2)      { dpuColor2 = "#1D9E75"; dpuLabel = "↓"; }
-              else if (weekDpu > prevDpu2) { dpuColor2 = "#A32D2D"; dpuLabel = "↑"; }
-              else                         { dpuColor2 = "#888";    dpuLabel = "→"; }
-            }
+        let dpuColor2 = "#888";
+        let dpuLabel  = "";
+        if (prevDpu2 !== null) {
+          if (weekDpu < prevDpu2)      { dpuColor2 = "#1D9E75"; dpuLabel = "↓"; }
+          else if (weekDpu > prevDpu2) { dpuColor2 = "#A32D2D"; dpuLabel = "↑"; }
+          else                         { dpuColor2 = "#888";    dpuLabel = "→"; }
+        }
 
-            const isOpen     = expandedWeeks[week];
-            const isLastWeek = week === getLastWeekStart();
+        const isOpen     = expandedWeeks[week];
+        const isLastWeek = week === getLastWeekStart();
 
-            return (
-              <div key={week} style={{ border: "0.5px solid #eee", borderRadius: 10, marginBottom: 8, overflow: "hidden" }}>
-                <div style={{
-                  display: "flex", alignItems: "center", justifyContent: "space-between",
-                  padding: "12px 16px",
-                  background: isLastWeek ? "#f0faf6" : "#fafafa",
-                  borderBottom: isOpen ? "0.5px solid #eee" : "none",
+        return (
+          <div key={week} style={{ border: "0.5px solid #eee", borderRadius: 10, marginBottom: 8, overflow: "hidden" }}>
+            <div style={{
+              display: "flex", alignItems: "center", justifyContent: "space-between",
+              padding: "12px 16px",
+              background: isLastWeek ? "#f0faf6" : "#fafafa",
+              borderBottom: isOpen ? "0.5px solid #eee" : "none",
+            }}>
+              <button
+                type="button"
+                onClick={() => toggleWeek(week)}
+                style={{
+                  display: "flex", alignItems: "center", gap: 12,
+                  background: "none", border: "none", cursor: "pointer",
+                  fontFamily: "inherit", padding: 0, flex: 1, textAlign: "left",
                 }}>
-                  <button
-                    type="button" onClick={() => toggleWeek(week)}
-                    style={{
-                      display: "flex", alignItems: "center", gap: 12,
-                      background: "none", border: "none", cursor: "pointer",
-                      fontFamily: "inherit", padding: 0, flex: 1, textAlign: "left",
-                    }}>
-                    <span style={{ fontSize: 13, fontWeight: 500, color: "#333" }}>Week of {formatWeek(week)}</span>
-                    {isLastWeek && (
-                      <span style={{ fontSize: 11, background: "#E1F5EE", color: "#0F6E56", padding: "2px 8px", borderRadius: 10, fontWeight: 500 }}>
-                        Last week
-                      </span>
-                    )}
-                  </button>
-                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                    <span style={{ fontSize: 12, color: wos.length >= 14 ? "#1D9E75" : "#A32D2D", fontWeight: 500 }}>{wos.length} trucks</span>
-                    <span style={{ fontSize: 12, color: "#888" }}>{weekDefects} defects</span>
-                    <span style={{ fontSize: 13, fontWeight: 500, color: dpuColor2 }}>{dpuLabel} DPU: {weekDpu.toFixed(2)}</span>
-                    <button
-                      onClick={() => setConfirmWeek(week)}
-                      style={{
-                        width: 22, height: 22, border: "0.5px solid #ddd",
-                        borderRadius: 6, background: "#fff", cursor: "pointer",
-                        fontSize: 12, color: "#aaa", fontFamily: "inherit",
-                        display: "flex", alignItems: "center", justifyContent: "center",
-                      }}>✕</button>
-                    <span
-                      onClick={() => toggleWeek(week)}
-                      style={{
-                        fontSize: 12, color: "#555", fontWeight: 500,
-                        background: "#eee", borderRadius: 4, padding: "2px 8px", cursor: "pointer",
-                      }}>
-                      {isOpen ? "▲ Hide" : "▼ Show"}
-                    </span>
-                  </div>
-                </div>
-
-                {isOpen && (
-                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-                    <thead>
-                      <tr style={{ borderBottom: "0.5px solid #f0f0f0", textAlign: "left" }}>
-                        <th style={{ padding: "7px 16px", fontWeight: 500, color: "#555" }}>Work Order</th>
-                        <th style={{ padding: "7px 16px", fontWeight: 500, color: "#555" }}>Defects</th>
-                        <th style={{ padding: "7px 16px" }}></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {wos.map(wo => (
-                        <tr key={wo.id} style={{ borderBottom: "0.5px solid #f5f5f5" }}>
-                          <td style={{ padding: "6px 16px" }}>
-                            {editingId === wo.id ? (
-                              <input
-                                type="text" maxLength={6} value={editValues.work_order_num}
-                                onChange={e => setEditValues(prev => ({ ...prev, work_order_num: stripPrefix(e.target.value) }))}
-                                style={{ ...inputStyle, width: 120 }}
-                              />
-                            ) : wo.work_order_num}
-                          </td>
-                          <td style={{ padding: "6px 16px" }}>
-                            {editingId === wo.id ? (
-                              <input
-                                type="number" min="0" value={editValues.total_defects}
-                                onChange={e => setEditValues(prev => ({ ...prev, total_defects: e.target.value }))}
-                                style={{ ...inputStyle, width: 80 }}
-                              />
-                            ) : wo.total_defects}
-                          </td>
-                          <td style={{ padding: "6px 16px" }}>
-                            <div style={{ display: "flex", gap: 6 }}>
-                              {editingId === wo.id ? (
-                                <>
-                                  <button onClick={() => saveEdit(wo)} style={{
-                                    padding: "3px 10px", fontSize: 11,
-                                    border: "1px solid #1D9E75", background: "#E1F5EE",
-                                    color: "#0F6E56", borderRadius: 6, cursor: "pointer",
-                                  }}>Save</button>
-                                  <button onClick={() => { setEditingId(null); setEditValues({}); }} style={{
-                                    padding: "3px 8px", fontSize: 11,
-                                    border: "0.5px solid #ddd", background: "#fff",
-                                    color: "#888", borderRadius: 6, cursor: "pointer",
-                                  }}>Cancel</button>
-                                </>
-                              ) : (
-                                <>
-                                  <button onClick={() => startEdit(wo)} style={{
-                                    padding: "3px 10px", fontSize: 11,
-                                    border: "1px solid #378ADD", background: "#E6F1FB",
-                                    color: "#0C447C", borderRadius: 6, cursor: "pointer",
-                                  }}>Edit</button>
-                                  <button onClick={() => handleDelete(wo.id)} style={{
-                                    padding: "3px 8px", fontSize: 11,
-                                    border: "1px solid #E24B4A", background: "#FCEBEB",
-                                    color: "#A32D2D", borderRadius: 6, cursor: "pointer",
-                                  }}>Delete</button>
-                                </>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                      <InlineAddRow week={week} onAdded={() => { load(); if (onSaved) onSaved(); }} />
-                    </tbody>
-                  </table>
+                <span style={{ fontSize: 13, fontWeight: 500, color: "#333" }}>
+                  Week of {formatWeek(week)}
+                </span>
+                {isLastWeek && (
+                  <span style={{ fontSize: 11, background: "#E1F5EE", color: "#0F6E56", padding: "2px 8px", borderRadius: 10, fontWeight: 500 }}>
+                    Last week
+                  </span>
                 )}
+              </button>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <span style={{ fontSize: 12, color: wos.length >= 14 ? "#1D9E75" : "#A32D2D", fontWeight: 500 }}>
+                  {wos.length} trucks
+                </span>
+                <span style={{ fontSize: 12, color: "#888" }}>{weekDefects} defects</span>
+                <span style={{ fontSize: 13, fontWeight: 500, color: dpuColor2 }}>
+                  {dpuLabel} DPU: {weekDpu.toFixed(2)}
+                </span>
+                <button
+                  onClick={() => setConfirmWeek(week)}
+                  title="Delete entire week"
+                  style={{
+                    width: 22, height: 22, border: "0.5px solid #ddd",
+                    borderRadius: 6, background: "#fff", cursor: "pointer",
+                    fontSize: 12, color: "#aaa", fontFamily: "inherit",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                  }}>
+                  ✕
+                </button>
+                <span
+                  onClick={() => toggleWeek(week)}
+                  style={{
+                    fontSize: 12, color: "#555", fontWeight: 500,
+                    background: "#eee", borderRadius: 4, padding: "2px 8px",
+                    cursor: "pointer",
+                  }}>
+                  {isOpen ? "▲ Hide" : "▼ Show"}
+                </span>
               </div>
-            );
-          })}
-        </div>
-      )}
+            </div>
+
+            {isOpen && (
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                <thead>
+                  <tr style={{ borderBottom: "0.5px solid #f0f0f0", textAlign: "left" }}>
+                    <th style={{ padding: "7px 16px", fontWeight: 500, color: "#555" }}>Work Order</th>
+                    <th style={{ padding: "7px 16px", fontWeight: 500, color: "#555" }}>Defects</th>
+                    <th style={{ padding: "7px 16px" }}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {wos.map(wo => (
+                    <tr key={wo.id} style={{ borderBottom: "0.5px solid #f5f5f5" }}>
+                      <td style={{ padding: "6px 16px" }}>
+                        {editingId === wo.id ? (
+                          <input
+                            type="text"
+                            maxLength={6}
+                            value={editValues.work_order_num}
+                            onChange={e => setEditValues(prev => ({ ...prev, work_order_num: stripPrefix(e.target.value) }))}
+                            style={{ ...inputStyle, width: 120 }}
+                          />
+                        ) : (
+                          wo.work_order_num
+                        )}
+                      </td>
+                      <td style={{ padding: "6px 16px" }}>
+                        {editingId === wo.id ? (
+                          <input
+                            type="number"
+                            min="0"
+                            value={editValues.total_defects}
+                            onChange={e => setEditValues(prev => ({ ...prev, total_defects: e.target.value }))}
+                            style={{ ...inputStyle, width: 80 }}
+                          />
+                        ) : (
+                          wo.total_defects
+                        )}
+                      </td>
+                      <td style={{ padding: "6px 16px" }}>
+                        <div style={{ display: "flex", gap: 6 }}>
+                          {editingId === wo.id ? (
+                            <>
+                              <button onClick={() => saveEdit(wo)} style={{
+                                padding: "3px 10px", fontSize: 11,
+                                border: "1px solid #1D9E75", background: "#E1F5EE",
+                                color: "#0F6E56", borderRadius: 6, cursor: "pointer",
+                              }}>
+                                Save
+                              </button>
+                              <button onClick={() => { setEditingId(null); setEditValues({}); }} style={{
+                                padding: "3px 8px", fontSize: 11,
+                                border: "0.5px solid #ddd", background: "#fff",
+                                color: "#888", borderRadius: 6, cursor: "pointer",
+                              }}>
+                                Cancel
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <button onClick={() => startEdit(wo)} style={{
+                                padding: "3px 10px", fontSize: 11,
+                                border: "1px solid #378ADD", background: "#E6F1FB",
+                                color: "#0C447C", borderRadius: 6, cursor: "pointer",
+                              }}>
+                                Edit
+                              </button>
+                              <button onClick={() => handleDelete(wo.id)} style={{
+                                padding: "3px 8px", fontSize: 11,
+                                border: "1px solid #E24B4A", background: "#FCEBEB",
+                                color: "#A32D2D", borderRadius: 6, cursor: "pointer",
+                              }}>
+                                Delete
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                  <InlineAddRow
+                    week={week}
+                    onAdded={() => { load(); if (onSaved) onSaved(); }}
+                  />
+                </tbody>
+              </table>
+            )}
+         </div>
+        );
+      })}
+</div>
+)}
 
       {showHistory && sortedWeeks.length > 0 && (
-        <div style={{ marginTop: 12, fontSize: 11, color: "#888", display: "flex", gap: 16 }}>
+        <div style={{ marginTop: 12, fontSize: 11, color: "#888", display: "flex", gap: 16, flexWrap: "nowrap" }}>
           <span style={{ color: "#1D9E75" }}>↓ Improved from previous week</span>
           <span style={{ color: "#A32D2D" }}>↑ Worse than previous week</span>
           <span style={{ color: "#888" }}>→ No change</span>
