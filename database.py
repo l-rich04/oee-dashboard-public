@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, Float, Boolean
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
@@ -23,6 +23,7 @@ class Issue(Base):
     created_at      = Column(DateTime, default=datetime.utcnow)
     updated_at      = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     production_id   = Column(Integer, nullable=True)
+    is_read = Column(Boolean, default=False, nullable=False)
 
 
 class IssueUpdate(Base):
@@ -34,6 +35,78 @@ class IssueUpdate(Base):
     note       = Column(Text, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+class WorkOrder(Base):
+    __tablename__ = "work_orders"
+
+    id              = Column(Integer, primary_key=True, index=True)
+    work_order_num  = Column(String, nullable=False)
+    truck_type      = Column(String, nullable=False)
+    units_completed = Column(Integer, nullable=False)
+    total_defects   = Column(Integer, nullable=False)
+    week_start      = Column(String, nullable=False)
+    created_at      = Column(DateTime, default=datetime.utcnow)
+
+
+class DowntimeLog(Base):
+    __tablename__ = "downtime_logs"
+
+    id         = Column(Integer, primary_key=True, index=True)
+    machine    = Column(String, nullable=False)
+    duration   = Column(Integer, nullable=False)
+    reason     = Column(String, nullable=False)
+    date       = Column(String, nullable=False)
+    notes      = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class OEEGoals(Base):
+    __tablename__ = "oee_goals"
+
+    id                  = Column(Integer, primary_key=True, index=True)
+    annual_dpu_goal     = Column(Float, default=1.62)
+    quarterly_dpu_goal  = Column(Float, default=3.53)
+    weekly_trucks_min   = Column(Integer, default=14)
+    weekly_trucks_max   = Column(Integer, default=18)
+    updated_at          = Column(DateTime, default=datetime.utcnow)
+
+class ReworkHours(Base):
+    __tablename__ = "rework_hours"
+
+    id         = Column(Integer, primary_key=True, index=True)
+    week_start = Column(String, nullable=False, unique=True)
+    hours      = Column(Float, nullable=False)
+    notes      = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class Foreman(Base):
+    __tablename__ = "foremen"
+
+    id         = Column(Integer, primary_key=True, index=True)
+    name       = Column(String, unique=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class GoalHistory(Base):
+    __tablename__ = "goal_history"
+
+    id                 = Column(Integer, primary_key=True, index=True)
+    effective_date     = Column(String, nullable=False)
+    annual_dpu_goal    = Column(Float, nullable=False)
+    quarterly_dpu_goal = Column(Float, nullable=False)
+    weekly_trucks_min  = Column(Integer, nullable=False)
+    weekly_trucks_max  = Column(Integer, nullable=False)
+    created_at         = Column(DateTime, default=datetime.utcnow)
+
+class IndirectLabor(Base):
+    __tablename__ = "indirect_labor"
+
+    id                = Column(Integer, primary_key=True, index=True)
+    week_start        = Column(String, nullable=False, unique=True)
+    total_labor_hours = Column(Float, nullable=False)
+    indirect_hours    = Column(Float, nullable=False)
+    rework_hours      = Column(Float, nullable=False, default=0)
+    notes             = Column(Text, nullable=True)
+    created_at        = Column(DateTime, default=datetime.utcnow)
+    updated_at        = Column(DateTime, default=datetime.utcnow)
 
 def get_db():
     db = SessionLocal()

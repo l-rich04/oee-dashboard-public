@@ -7,6 +7,7 @@ import IssueUpdatePanel from "../components/IssueUpdatePanel";
 import IssueEditPanel from "../components/IssueEditPanel";
 import MassAddPanel from "../components/MassAddPanel";
 import SupervisorLogin from "../components/SupervisorLogin";
+import WeeklyLaborPanel from "../components/WeeklyLaborPanel";
 
 function daysOld(createdAt) {
   const created = new Date(createdAt + "Z");
