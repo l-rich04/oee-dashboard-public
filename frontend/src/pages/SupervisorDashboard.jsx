@@ -1,13 +1,17 @@
 import { Helmet } from "react-helmet-async";
 import { useEffect, useState } from "react";
-import { getIssues, getSummary, deleteIssue } from "../api/issues";
+import { getIssues, getSummary, deleteIssue, getOEESummary, getForemen, markIssueRead } from "../api/issues";
 import IssueStatusBadge from "../components/IssueStatusBadge";
 import SummaryCharts from "../components/SummaryCharts";
 import IssueUpdatePanel from "../components/IssueUpdatePanel";
 import IssueEditPanel from "../components/IssueEditPanel";
 import MassAddPanel from "../components/MassAddPanel";
 import SupervisorLogin from "../components/SupervisorLogin";
+import OEEMetrics from "../components/OEEMetrics";
+import OEEGoalsPanel from "../components/OEEGoalsPanel";
+import WorkOrderPanel from "../components/WorkOrderPanel";
 import WeeklyLaborPanel from "../components/WeeklyLaborPanel";
+import ForemanManagePanel from "../components/ForemanManagePanel";
 
 function daysOld(createdAt) {
   const created = new Date(createdAt + "Z");
