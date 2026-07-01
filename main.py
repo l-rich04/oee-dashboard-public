@@ -447,6 +447,7 @@ def upsert_indirect_labor(data: IndirectLaborCreate, db: Session = Depends(get_d
     if existing:
         existing.total_labor_hours = data.total_labor_hours
         existing.indirect_hours    = data.indirect_hours
+        existing.rework_hours      = data.rework_hours
         existing.notes             = data.notes
         existing.updated_at        = datetime.utcnow()
         db.commit()
@@ -753,6 +754,15 @@ def get_oee_summary(db: Session = Depends(get_db)):
         "last_week_total_hours":     last_week_indirect.total_labor_hours if last_week_indirect else 0,
         "best_week_quarter":         best_week,
         "worst_week_quarter":        worst_week,
+        "indirect_labor_history": [
+    {
+        "week_start":        r.week_start,
+        "total_labor_hours": r.total_labor_hours,
+        "indirect_hours":    r.indirect_hours,
+        "rework_hours":      r.rework_hours,
+    }
+    for r in indirect_logs
+],
         "goals": {
             "annual_dpu_goal":    current_quarter_goal.annual_dpu_goal,
             "quarterly_dpu_goal": current_quarter_goal.quarterly_dpu_goal,

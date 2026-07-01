@@ -37,8 +37,7 @@ export default function WeeklyLaborPanel({ onSaved }) {
   useEffect(() => { load(); }, []);
 
   const isValid = totalLaborHours !== "" && Number(totalLaborHours) > 0
-               && indirectHours   !== "" && Number(indirectHours)   >= 0
-               && reworkHours     !== "" && Number(reworkHours)     >= 0;
+             && indirectHours   !== "" && Number(indirectHours)   >= 0;
 
   async function handleSave() {
     if (!isValid) return;
@@ -49,7 +48,7 @@ export default function WeeklyLaborPanel({ onSaved }) {
         week_start:        weekStart,
         total_labor_hours: Number(totalLaborHours),
         indirect_hours:    Number(indirectHours),
-        rework_hours:      Number(reworkHours),
+        rework_hours:      reworkHours !== "" ? Number(reworkHours) : 0,
         notes:             notes.trim() || null,
       });
       setSuccessMsg("Weekly labor hours saved.");
