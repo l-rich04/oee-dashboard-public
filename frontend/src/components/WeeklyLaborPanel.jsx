@@ -22,6 +22,8 @@ export default function WeeklyLaborPanel({ onSaved }) {
   const [saving, setSaving]                   = useState(false);
   const [successMsg, setSuccessMsg]           = useState(null);
   const [error, setError]                     = useState(null);
+  const [editingId, setEditingId]   = useState(null);
+  const [editValues, setEditValues] = useState({});
 
   async function load() {
     try {
@@ -70,6 +72,36 @@ export default function WeeklyLaborPanel({ onSaved }) {
     load();
     if (onSaved) onSaved();
   }
+
+  function startEdit(entry) {
+  setEditingId(entry.id);
+  setEditValues({
+    week_start:        entry.week_start,
+    total_labor_hours: entry.total_labor_hours,
+    indirect_hours:    entry.indirect_hours,
+    rework_hours:      entry.rework_hours,
+    notes:             entry.notes ?? "",
+  });
+}
+
+async function handleSaveEdit() {
+  setSaving(true);
+  try {
+    await saveIndirectLabor({
+      week_start:        editValues.week_start,
+      total_labor_hours: Number(editValues.total_labor_hours),
+      indirect_hours:    Number(editValues.indirect_hours),
+      rework_hours:      Number(editValues.rework_hours),
+      notes:             editValues.notes.trim() || null,
+    });
+    setEditingId(null);
+    setEditValues({});
+    load();
+    if (onSaved) onSaved();
+  } finally {
+    setSaving(false);
+  }
+}
 
   return (
     <div style={{ marginBottom: 24 }}>
@@ -167,30 +199,83 @@ export default function WeeklyLaborPanel({ onSaved }) {
           </thead>
           <tbody>
             {entries.map(e => {
-              const avail = e.total_labor_hours > 0
-                ? Math.round(((e.total_labor_hours - e.indirect_hours - e.rework_hours) / e.total_labor_hours) * 100)
-                : 0;
-              const availColor = avail >= 85 ? "#1D9E75" : avail >= 70 ? "#854F0B" : "#A32D2D";
-              return (
-                <tr key={e.id} style={{ borderBottom: "0.5px solid #f0f0f0" }}>
-                  <td style={tdStyle}>{formatWeek(e.week_start)}</td>
-                  <td style={tdStyle}>{e.total_labor_hours}</td>
-                  <td style={tdStyle}>{e.indirect_hours}</td>
-                  <td style={tdStyle}>{e.rework_hours}</td>
-                  <td style={{ ...tdStyle, color: availColor, fontWeight: 500 }}>{avail}%</td>
-                  <td style={{ ...tdStyle, color: "#888" }}>{e.notes ?? "—"}</td>
-                  <td style={tdStyle}>
-                    <button onClick={() => handleDelete(e.id)} style={{
-                      padding: "3px 8px", fontSize: 11,
-                      border: "1px solid #E24B4A", background: "#FCEBEB",
-                      color: "#A32D2D", borderRadius: 6, cursor: "pointer",
-                    }}>
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              );
-            })}
+  const avail = e.total_labor_hours > 0
+    ? Math.round(((e.total_labor_hours - e.indirect_hours - e.rework_hours) / e.total_labor_hours) * 100)
+    : 0;
+  const availColor = avail >= 85 ? "#1D9E75" : avail >= 70 ? "#854F0B" : "#A32D2D";
+
+  if (editingId === e.id) {
+    return (
+      <tr key={e.id} style={{ borderBottom: "0.5px solid #f0f0f0", background: "#f0faf6" }}>
+        <td style={tdStyle}>
+          <input type="date" value={editValues.week_start}
+            onChange={ev => setEditValues(p => ({ ...p, week_start: ev.target.value }))}
+            style={{ ...editInputStyle, width: 130 }} />
+        </td>
+        <td style={tdStyle}>
+          <input type="number" min="0" step="0.5" value={editValues.total_labor_hours}
+            onChange={ev => setEditValues(p => ({ ...p, total_labor_hours: ev.target.value }))}
+            style={{ ...editInputStyle, width: 80 }} />
+        </td>
+        <td style={tdStyle}>
+          <input type="number" min="0" step="0.5" value={editValues.indirect_hours}
+            onChange={ev => setEditValues(p => ({ ...p, indirect_hours: ev.target.value }))}
+            style={{ ...editInputStyle, width: 80 }} />
+        </td>
+        <td style={tdStyle}>
+          <input type="number" min="0" step="0.5" value={editValues.rework_hours}
+            onChange={ev => setEditValues(p => ({ ...p, rework_hours: ev.target.value }))}
+            style={{ ...editInputStyle, width: 80 }} />
+        </td>
+        <td style={{ ...tdStyle, color: availColor, fontWeight: 500 }}>{avail}%</td>
+        <td style={tdStyle}>
+          <input type="text" value={editValues.notes}
+            onChange={ev => setEditValues(p => ({ ...p, notes: ev.target.value }))}
+            style={{ ...editInputStyle, width: 120 }} />
+        </td>
+        <td style={tdStyle}>
+          <div style={{ display: "flex", gap: 6 }}>
+            <button onClick={handleSaveEdit} disabled={saving} style={{
+              padding: "3px 10px", fontSize: 11,
+              border: "1px solid #1D9E75", background: "#E1F5EE",
+              color: "#0F6E56", borderRadius: 6, cursor: "pointer",
+            }}>Save</button>
+            <button onClick={() => { setEditingId(null); setEditValues({}); }} style={{
+              padding: "3px 8px", fontSize: 11,
+              border: "0.5px solid #ddd", background: "#fff",
+              color: "#888", borderRadius: 6, cursor: "pointer",
+            }}>Cancel</button>
+          </div>
+        </td>
+      </tr>
+    );
+  }
+
+  return (
+    <tr key={e.id} style={{ borderBottom: "0.5px solid #f0f0f0" }}>
+      <td style={tdStyle}>{formatWeek(e.week_start)}</td>
+      <td style={tdStyle}>{e.total_labor_hours}</td>
+      <td style={tdStyle}>{e.indirect_hours}</td>
+      <td style={tdStyle}>{e.rework_hours}</td>
+      <td style={{ ...tdStyle, color: availColor, fontWeight: 500 }}>{avail}%</td>
+      <td style={{ ...tdStyle, color: "#888" }}>{e.notes ?? "—"}</td>
+      <td style={tdStyle}>
+        <div style={{ display: "flex", gap: 6 }}>
+          <button onClick={() => startEdit(e)} style={{
+            padding: "3px 8px", fontSize: 11,
+            border: "1px solid #378ADD", background: "#E6F1FB",
+            color: "#0C447C", borderRadius: 6, cursor: "pointer",
+          }}>Edit</button>
+          <button onClick={() => handleDelete(e.id)} style={{
+            padding: "3px 8px", fontSize: 11,
+            border: "1px solid #E24B4A", background: "#FCEBEB",
+            color: "#A32D2D", borderRadius: 6, cursor: "pointer",
+          }}>Delete</button>
+        </div>
+      </td>
+    </tr>
+  );
+})}
           </tbody>
         </table>
         {entries.length === 0 && (
@@ -207,3 +292,4 @@ const labelStyle = { display: "block", fontSize: 12, fontWeight: 500, color: "#5
 const inputStyle = { width: "100%", padding: "8px 10px", fontSize: 13, border: "1px solid #ddd", borderRadius: 8, fontFamily: "inherit", boxSizing: "border-box" };
 const tdStyle    = { padding: "9px 12px", verticalAlign: "middle" };
 const thStyle    = { padding: "8px 12px", fontWeight: 500, color: "#555" };
+const editInputStyle = { padding: "4px 6px", fontSize: 11, border: "0.5px solid #ddd", borderRadius: 6, fontFamily: "inherit", boxSizing: "border-box"};

@@ -1,8 +1,9 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   LineChart, Line, XAxis, YAxis, Tooltip,
   ResponsiveContainer, BarChart, Bar, ReferenceLine
 } from "recharts";
+import { getGoalHistory } from "../api/issues";
 
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 
@@ -39,6 +40,31 @@ export default function OEEMetrics({ summary }) {
   const [dpuFilter, setDpuFilter]       = useState("quarter");
   const [selectedYear, setSelectedYear] = useState(currentYear);
   const [selectedSub, setSelectedSub]   = useState(currentQuarter);
+  const [goalHistory, setGoalHistory] = useState([]);
+
+    useEffect(() => {
+        getGoalHistory().then(setGoalHistory).catch(console.error);
+    }, []);
+
+   function getGoalForPeriod() {
+  if (!goalHistory.length) return goals;
+  const sorted = [...goalHistory].sort((a, b) => a.effective_date.localeCompare(b.effective_date));
+
+  // For full year view always use current goal
+  if (dpuFilter === "ytd") {
+    if (!goalHistory.length) return goals;
+    const sorted = [...goalHistory].sort((a, b) => b.effective_date.localeCompare(a.effective_date));
+    return sorted[0];
+    }
+  const midWeek = filteredHistory[Math.floor(filteredHistory.length / 2)]?.week;
+  if (!midWeek) return goals;
+  let active = sorted[0];
+  for (const g of sorted) {
+    if (g.effective_date <= midWeek) active = g;
+    else break;
+  }
+  return active;
+}
 
   const availableQuarters = useMemo(() => {
     const qs = new Set(allHistory
@@ -270,10 +296,17 @@ export default function OEEMetrics({ summary }) {
                   <XAxis dataKey="week" tick={{ fontSize: 10 }} angle={-25} textAnchor="end" interval={0} />
                   <YAxis tick={{ fontSize: 11 }} />
                   <Tooltip />
-                  <ReferenceLine y={goals.annual_dpu_goal} stroke="#D4A017" strokeDasharray="4 3"
-                    label={{ value: `Annual: ${goals.annual_dpu_goal}`, position: "insideTopRight", fontSize: 10, fill: "#D4A017" }} />
-                  <ReferenceLine y={goals.quarterly_dpu_goal} stroke="#854F0B" strokeDasharray="4 3"
-                    label={{ value: `Quarterly: ${goals.quarterly_dpu_goal}`, position: "insideBottomRight", fontSize: 10, fill: "#854F0B" }} />
+                  {(() => {
+  const g = getGoalForPeriod();
+  return (
+    <>
+      <ReferenceLine y={g.annual_dpu_goal} stroke="#D4A017" strokeDasharray="4 3"
+        label={{ value: `Annual: ${g.annual_dpu_goal}`, position: "insideTopRight", fontSize: 10, fill: "#D4A017" }} />
+      <ReferenceLine y={g.quarterly_dpu_goal} stroke="#854F0B" strokeDasharray="4 3"
+        label={{ value: `Quarterly: ${g.quarterly_dpu_goal}`, position: "insideBottomRight", fontSize: 10, fill: "#854F0B" }} />
+    </>
+  );
+})()}
                   <Line type="monotone" dataKey="dpu" stroke="#378ADD" strokeWidth={2} dot={{ r: 4 }} />
                 </LineChart>
               </ResponsiveContainer>
@@ -312,8 +345,15 @@ export default function OEEMetrics({ summary }) {
           )}
 
           <div style={{ marginTop: 10, fontSize: 11, color: "#888", display: "flex", gap: 16, flexWrap: "wrap" }}>
-            <span style={{ color: "#D4A017" }}>— Annual goal ({goals.annual_dpu_goal})</span>
-            <span style={{ color: "#854F0B" }}>— Quarterly goal ({goals.quarterly_dpu_goal})</span>
+            {(() => {
+  const g = getGoalForPeriod();
+  return (
+    <>
+      <span style={{ color: "#D4A017" }}>— Annual goal ({g.annual_dpu_goal})</span>
+      <span style={{ color: "#854F0B" }}>— Quarterly goal ({g.quarterly_dpu_goal})</span>
+    </>
+  );
+})()}
             <span style={{ color: "#1D9E75" }}>↓ Improved</span>
             <span style={{ color: "#A32D2D" }}>↑ Worsened</span>
             <span style={{ color: "#888" }}>→ No change</span>

@@ -731,6 +731,8 @@ def get_oee_summary(db: Session = Depends(get_db)):
         if log.date >= str(quarter_start):
             downtime_by_machine[log.machine] = downtime_by_machine.get(log.machine, 0) + log.duration
 
+    current_quarter_goal = get_goal_for_date(quarter_start)
+
     return {
         "oee":                       oee,
         "availability":              availability,
@@ -752,8 +754,8 @@ def get_oee_summary(db: Session = Depends(get_db)):
         "best_week_quarter":         best_week,
         "worst_week_quarter":        worst_week,
         "goals": {
-            "annual_dpu_goal":    goals.annual_dpu_goal,
-            "quarterly_dpu_goal": goals.quarterly_dpu_goal,
+            "annual_dpu_goal":    current_quarter_goal.annual_dpu_goal,
+            "quarterly_dpu_goal": current_quarter_goal.quarterly_dpu_goal,
             "weekly_trucks_min":  goals.weekly_trucks_min,
             "weekly_trucks_max":  goals.weekly_trucks_max,
         }

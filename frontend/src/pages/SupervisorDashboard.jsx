@@ -10,10 +10,8 @@ import SupervisorLogin from "../components/SupervisorLogin";
 import OEEMetrics from "../components/OEEMetrics";
 import OEEGoalsPanel from "../components/OEEGoalsPanel";
 import WorkOrderPanel from "../components/WorkOrderPanel";
-import DowntimePanel from "../components/DowntimePanel";
-import ReworkPanel from "../components/ReworkPanel";
+import WeeklyLaborPanel from "../components/WeeklyLaborPanel";
 import ForemanManagePanel from "../components/ForemanManagePanel";
-import IndirectLaborPanel from "../components/IndirectLaborPanel";
 
 function daysOld(createdAt) {
   const created = new Date(createdAt + "Z");
@@ -621,11 +619,7 @@ export default function SupervisorDashboard() {
             )}
 
           {activeOeeTab === "downtime" && (
-  <>
-    <IndirectLaborPanel onSaved={loadOEE} />
-    <div style={{ height: 1, background: "#eee", margin: "24px 0" }} />
-    <ReworkPanel onSaved={loadOEE} />
-  </>
+  <WeeklyLaborPanel onSaved={loadOEE} />
 )}
           </>
         )}
