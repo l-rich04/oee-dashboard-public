@@ -44,11 +44,11 @@ export default function SupervisorDashboard() {
   const [showSolved, setShowSolved]           = useState(false);
 
   async function load() {
-  const [data, sum] = await Promise.all([getIssues({}), getSummary(period)]);
-  setIssues(data);
-  setSummary(sum);
-  setCheckedIds(new Set());
-}
+    const [data, sum] = await Promise.all([getIssues({}), getSummary(period)]);
+    setIssues(data);
+    setSummary(sum);
+    setCheckedIds(new Set());
+  }
 
   async function loadOEE() {
     try {
@@ -69,14 +69,18 @@ export default function SupervisorDashboard() {
   }
 
   useEffect(() => {
-  if (authed) {
-    load();
-    loadOEE();
-    loadForemen();
-  }
-}, [authed, period]);
+    if (authed) {
+      load();
+      loadOEE();
+      loadForemen();
+    }
+  }, [authed, period]);
 
-  
+  useEffect(() => {
+    if (!authed) return;
+    const interval = setInterval(() => { load(); }, 30000);
+    return () => clearInterval(interval);
+  }, [authed]);
 
   function toggleForeman(key) {
     setExpandedForemen(prev => ({ ...prev, [key]: !prev[key] }));
@@ -114,7 +118,59 @@ export default function SupervisorDashboard() {
   const solvedIssues = issues.filter(i => i.status === "solved");
   const unreadCount  = activeIssues.filter(i => !i.is_read).length;
 
-  
+  // Auto-refresh favicon badge — must be after unreadCount
+  useEffect(() => {
+  const canvas  = document.createElement("canvas");
+  canvas.width  = 32;
+  canvas.height = 32;
+  const ctx     = canvas.getContext("2d");
+
+  const svgData = `<svg width="32" height="32" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+    <rect width="32" height="32" rx="6" fill="#1D9E75"/>
+    <rect x="4" y="20" width="4" height="8" rx="1" fill="white" opacity="0.9"/>
+    <rect x="10" y="14" width="4" height="14" rx="1" fill="white" opacity="0.9"/>
+    <rect x="16" y="9" width="4" height="19" rx="1" fill="white" opacity="0.9"/>
+    <rect x="22" y="16" width="4" height="12" rx="1" fill="white" opacity="0.9"/>
+    <polyline points="6,18 12,12 18,7 24,14" fill="none" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.6"/>
+  </svg>`;
+
+  const blob = new Blob([svgData], { type: "image/svg+xml" });
+  const url  = URL.createObjectURL(blob);
+  const img  = new Image();
+  img.src    = url;
+  img.onload = () => {
+    ctx.drawImage(img, 0, 0, 32, 32);
+    URL.revokeObjectURL(url);
+    if (unreadCount > 0) {
+      ctx.beginPath();
+      ctx.arc(22, 10, 11, 0, 2 * Math.PI);
+      ctx.fillStyle = "#E24B4A";
+      ctx.fill();
+      ctx.fillStyle = "#fff";
+      ctx.font      = "bold 11px Arial";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(unreadCount > 9 ? "9+" : String(unreadCount), 22, 10);
+    }
+    let link = document.querySelector("link[rel~='icon']");
+    if (!link) {
+      link     = document.createElement("link");
+      link.rel = "icon";
+      document.head.appendChild(link);
+    }
+    link.type = "image/png";
+    link.href = canvas.toDataURL("image/png");
+  };
+}, [unreadCount]);
+
+    const img = new Image();
+img.crossOrigin = "anonymous";
+img.src   = "/favicon.svg";
+img.onload = () => {
+  ctx.drawImage(img, 0, 0, 32, 32);
+  drawBadge();
+};
+img.onerror = () => { drawBadge(); };
 
   const grouped = activeIssues.reduce((acc, issue) => {
     const key = issue.foreman_name;
@@ -190,9 +246,8 @@ export default function SupervisorDashboard() {
               period={period}
               onPeriodChange={(p) => setPeriod(p)}
             />
-           
 
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
               <h2 style={{ fontSize: 16, fontWeight: 500, margin: 0 }}>All Issues</h2>
               <div style={{ display: "flex", gap: 8 }}>
                 <ForemanManagePanel onChanged={loadForemen} />
@@ -285,8 +340,6 @@ export default function SupervisorDashboard() {
               </div>
             )}
 
-            
-
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
               <span style={{ fontSize: 13, color: "#888" }}>
                 {checkedIds.size > 0 ? `${checkedIds.size} issue${checkedIds.size > 1 ? "s" : ""} selected` : ""}
@@ -312,13 +365,11 @@ export default function SupervisorDashboard() {
 
             {sortedForemen.map(foremanName => {
               const foremanIssues = grouped[foremanName];
-
               if (foremanIssues.length === 0) return null;
 
-              const isOpen     = expandedForemen[foremanName];
-              const newCount   = foremanIssues.filter(i => !i.is_read).length;
-
-              const counts = foremanIssues.reduce((acc, i) => {
+              const isOpen   = expandedForemen[foremanName];
+              const newCount = foremanIssues.filter(i => !i.is_read).length;
+              const counts   = foremanIssues.reduce((acc, i) => {
                 acc[i.status] = (acc[i.status] ?? 0) + 1;
                 return acc;
               }, {});
@@ -336,21 +387,20 @@ export default function SupervisorDashboard() {
                       fontFamily: "inherit", padding: 0, flex: 1, textAlign: "left",
                     }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-  <span style={{ fontSize: 13, fontWeight: 500, color: "#333" }}>{foremanName}</span>
-  {newCount > 0 && (
-    <span style={{
-      background: "#E24B4A", color: "#fff",
-      fontSize: 9, fontWeight: 700,
-      padding: "1px 5px", borderRadius: 8,
-    }}>
-      {newCount} new
-    </span>
-  )}
-</div>
+                        <span style={{ fontSize: 13, fontWeight: 500, color: "#333" }}>{foremanName}</span>
+                        {newCount > 0 && (
+                          <span style={{
+                            background: "#E24B4A", color: "#fff",
+                            fontSize: 9, fontWeight: 700,
+                            padding: "1px 5px", borderRadius: 8,
+                          }}>
+                            {newCount} new
+                          </span>
+                        )}
+                      </div>
                     </button>
                     <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
                       <span style={{ fontSize: 12, color: "#888" }}>{foremanIssues.length} issue{foremanIssues.length !== 1 ? "s" : ""}</span>
-                      
                       {counts.open > 0 && <span style={{ fontSize: 11, color: "#854F0B" }}>{counts.open} open</span>}
                       {counts.in_progress > 0 && <span style={{ fontSize: 11, color: "#854F0B" }}>{counts.in_progress} in progress</span>}
                       <span onClick={() => toggleForeman(foremanName)} style={{
@@ -433,14 +483,18 @@ export default function SupervisorDashboard() {
                                     Mark Read
                                   </button>
                                 )}
-                                <button onClick={async () => { setUpdating(issue); setEditing(null); setToDelete(null); setMassAdding(false); if (!issue.is_read) { await markIssueRead(issue.id); load(); } }}
-  style={{ ...btnBase, border: "1px solid #1D9E75", background: "#E1F5EE", color: "#0F6E56", fontWeight: 500 }}>
-  Update
-</button>
-<button onClick={async () => { setEditing(issue); setUpdating(null); setToDelete(null); setMassAdding(false); if (!issue.is_read) { await markIssueRead(issue.id); load(); } }}
-  style={{ ...btnBase, border: "1px solid #378ADD", background: "#E6F1FB", color: "#0C447C", fontWeight: 500 }}>
-  Edit
-</button>
+                                <button onClick={async () => {
+                                  setUpdating(issue); setEditing(null); setToDelete(null); setMassAdding(false);
+                                  if (!issue.is_read) { await markIssueRead(issue.id); load(); }
+                                }} style={{ ...btnBase, border: "1px solid #1D9E75", background: "#E1F5EE", color: "#0F6E56", fontWeight: 500 }}>
+                                  Update
+                                </button>
+                                <button onClick={async () => {
+                                  setEditing(issue); setUpdating(null); setToDelete(null); setMassAdding(false);
+                                  if (!issue.is_read) { await markIssueRead(issue.id); load(); }
+                                }} style={{ ...btnBase, border: "1px solid #378ADD", background: "#E6F1FB", color: "#0C447C", fontWeight: 500 }}>
+                                  Edit
+                                </button>
                                 <button onClick={() => confirmDelete([issue.id])}
                                   style={{ ...btnBase, border: "1px solid #E24B4A", background: "#FCEBEB", color: "#A32D2D" }}>
                                   Delete
@@ -594,9 +648,9 @@ export default function SupervisorDashboard() {
               <WorkOrderPanel onSaved={loadOEE} />
             )}
 
-          {activeOeeTab === "downtime" && (
-  <WeeklyLaborPanel onSaved={loadOEE} />
-)}
+            {activeOeeTab === "downtime" && (
+              <WeeklyLaborPanel onSaved={loadOEE} />
+            )}
           </>
         )}
 
@@ -605,5 +659,5 @@ export default function SupervisorDashboard() {
   );
 }
 
-const tdStyle     = { padding: "9px 12px", verticalAlign: "top" };
-const btnBase     = { padding: "4px 10px", fontSize: 12, borderRadius: 6, cursor: "pointer", fontFamily: "inherit", background: "#fff", color: "#333" };
+const tdStyle = { padding: "9px 12px", verticalAlign: "top" };
+const btnBase = { padding: "4px 10px", fontSize: 12, borderRadius: 6, cursor: "pointer", fontFamily: "inherit", background: "#fff", color: "#333" };
