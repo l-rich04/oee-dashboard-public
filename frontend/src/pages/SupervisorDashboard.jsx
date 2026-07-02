@@ -80,6 +80,8 @@ export default function SupervisorDashboard() {
     }
   }, [filter.status, filter.category, authed, period]);
 
+  
+
   function toggleForeman(key) {
     setExpandedForemen(prev => ({ ...prev, [key]: !prev[key] }));
   }
@@ -116,6 +118,8 @@ export default function SupervisorDashboard() {
   const solvedIssues = issues.filter(i => i.status === "solved");
   const unreadCount  = activeIssues.filter(i => !i.is_read).length;
 
+  
+
   const grouped = activeIssues.reduce((acc, issue) => {
     const key = issue.foreman_name;
     if (!acc[key]) acc[key] = [];
@@ -145,8 +149,8 @@ export default function SupervisorDashboard() {
   return (
     <>
       <Helmet>
-  <title>{unreadCount > 0 ? `(${unreadCount}) Supervisor Dashboard` : "Supervisor Dashboard"}</title>
-</Helmet>
+        <title>{unreadCount > 0 ? `(${unreadCount}) Supervisor Dashboard` : "Supervisor Dashboard"}</title>
+      </Helmet>
       <main style={{ maxWidth: 1600, margin: "40px auto", padding: "0 24px" }}>
         <h1 style={{ fontSize: 22, fontWeight: 500, marginBottom: 4 }}>
           Supervisor Dashboard
