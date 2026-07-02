@@ -2,7 +2,6 @@ import { Helmet } from "react-helmet-async";
 import { useEffect, useState } from "react";
 import { getIssues, getSummary, deleteIssue, getOEESummary, getForemen, markIssueRead } from "../api/issues";
 import IssueStatusBadge from "../components/IssueStatusBadge";
-import SummaryCharts from "../components/SummaryCharts";
 import IssueUpdatePanel from "../components/IssueUpdatePanel";
 import IssueEditPanel from "../components/IssueEditPanel";
 import MassAddPanel from "../components/MassAddPanel";
@@ -12,6 +11,7 @@ import OEEGoalsPanel from "../components/OEEGoalsPanel";
 import WorkOrderPanel from "../components/WorkOrderPanel";
 import WeeklyLaborPanel from "../components/WeeklyLaborPanel";
 import ForemanManagePanel from "../components/ForemanManagePanel";
+import IssuesSummary from "../components/IssuesSummary";
 
 function daysOld(createdAt) {
   const created = new Date(createdAt + "Z");
@@ -185,13 +185,14 @@ export default function SupervisorDashboard() {
         {/* ISSUES TAB */}
         {activeTab === "issues" && (
           <>
-            <SummaryCharts
-              summary={summary}
+            <IssuesSummary
               issues={issues}
+              period={period}
               onPeriodChange={(p) => setPeriod(p)}
             />
+           
 
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
               <h2 style={{ fontSize: 16, fontWeight: 500, margin: 0 }}>All Issues</h2>
               <div style={{ display: "flex", gap: 8 }}>
                 <ForemanManagePanel onChanged={loadForemen} />

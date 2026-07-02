@@ -41,6 +41,15 @@ export default function OEEMetrics({ summary }) {
   const allHistory      = summary.dpu_history ?? [];
   const indirectHistory = summary.indirect_labor_history ?? [];
 
+  // Derive last history values BEFORE any useState calls
+  const lastHistoryEntry   = allHistory[allHistory.length - 1];
+  const lastHistoryYear    = lastHistoryEntry
+    ? new Date(lastHistoryEntry.week).getFullYear()
+    : currentYear;
+  const lastHistoryQuarter = lastHistoryEntry
+    ? Math.floor(new Date(lastHistoryEntry.week).getMonth() / 3)
+    : currentQuarter;
+
   const [goalHistory, setGoalHistory] = useState([]);
 
   useEffect(() => {
@@ -51,13 +60,13 @@ export default function OEEMetrics({ summary }) {
 
   // Card period state
   const [period, setPeriod]     = useState("week");
-  const [cardYear, setCardYear] = useState(currentYear);
-  const [cardSub, setCardSub]   = useState(currentQuarter);
+  const [cardYear, setCardYear] = useState(lastHistoryYear);
+  const [cardSub, setCardSub]   = useState(lastHistoryQuarter);
 
   // Chart period state
   const [dpuFilter, setDpuFilter]       = useState("quarter");
-  const [selectedYear, setSelectedYear] = useState(currentYear);
-  const [selectedSub, setSelectedSub]   = useState(currentQuarter);
+  const [selectedYear, setSelectedYear] = useState(lastHistoryYear);
+  const [selectedSub, setSelectedSub]   = useState(lastHistoryQuarter);
 
   // --- Available periods ---
 
@@ -205,7 +214,7 @@ export default function OEEMetrics({ summary }) {
       const last = allHistory[allHistory.length - 1]?.dpu ?? 0;
       const prev = allHistory[allHistory.length - 2]?.dpu ?? null;
       return {
-        label:        `Last week (${getLastWeekStart()})`,
+        label:        `Last Week (${getLastWeekStart()})`,
         oee:          summary.oee,
         availability: summary.availability,
         performance:  summary.performance,
@@ -214,10 +223,10 @@ export default function OEEMetrics({ summary }) {
         dpu:          summary.avg_dpu_this_week,
         dpuArrow:     prev === null ? "" : last < prev ? "↓ " : last > prev ? "↑ " : "→ ",
         dpuColor:     prev === null ? "#888" : last < prev ? "#1D9E75" : last > prev ? "#A32D2D" : "#888",
-        trucksLabel:  "Trucks last week",
-        dpuLabel:     "DPU last week",
+        trucksLabel:  "Trucks Last Week",
+        dpuLabel:     "DPU Last Week",
         trucksSub:    `Target: ${goals.weekly_trucks_min}–${goals.weekly_trucks_max}`,
-        dpuSub:       "vs previous week",
+        dpuSub:       "vs Previous Week",
       };
     }
 
@@ -283,10 +292,10 @@ export default function OEEMetrics({ summary }) {
       dpu:          avgDpu,
       dpuArrow:     "",
       dpuColor:     avgDpu === 0 ? "#aaa" : avgDpu <= periodGoal.quarterly_dpu_goal ? "#1D9E75" : "#A32D2D",
-      trucksLabel:  "Avg trucks / week",
+      trucksLabel:  "Avg Trucks / Week",
       dpuLabel:     "Avg DPU",
       trucksSub:    `Target: ${goals.weekly_trucks_min}–${goals.weekly_trucks_max}`,
-      dpuSub:       `${periodLabels[period]} average`,
+      dpuSub:       `${periodLabels[period]} Average`,
     };
   }, [period, summary, allHistory, indirectHistory, goals, cardYear, cardSub, periodGoal]);
 
@@ -362,10 +371,10 @@ export default function OEEMetrics({ summary }) {
 
       {/* Row 1 */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 10 }}>
-        <MetricCard label="Overall OEE"  value={`${periodData.oee}%`}          sub={period === "week" ? "Last week" : "Period avg"} color={oeeColor} />
-        <MetricCard label="Availability" value={`${periodData.availability}%`} sub="Excl. indirect and rework"                      color={availColor} />
-        <MetricCard label="Performance"  value={`${periodData.performance}%`}  sub="Actual vs target"                               color={perfColor} />
-        <MetricCard label="Quality"      value={`${periodData.quality}%`}      sub="Goal ÷ actual DPU"                              color={qualColor} />
+        <MetricCard label="Overall OEE"  value={`${periodData.oee}%`}          sub={period === "week" ? "Last Week" : "Period AVG"} color={oeeColor} />
+        <MetricCard label="Availability" value={`${periodData.availability}%`} sub="Downtime / Total Labor Hours"                   color={availColor} />
+        <MetricCard label="Performance"  value={`${periodData.performance}%`}  sub="Actual vs Target"                               color={perfColor} />
+        <MetricCard label="Quality"      value={`${periodData.quality}%`}      sub="Goal / Actual DPU"                              color={qualColor} />
       </div>
 
       {/* Row 2 */}
