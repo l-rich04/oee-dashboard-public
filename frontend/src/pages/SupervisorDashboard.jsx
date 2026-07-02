@@ -457,14 +457,14 @@ export default function SupervisorDashboard() {
                                     Mark Read
                                   </button>
                                 )}
-                                <button onClick={() => { setUpdating(issue); setEditing(null); setToDelete(null); setMassAdding(false); }}
-                                  style={{ ...btnBase, border: "1px solid #1D9E75", background: "#E1F5EE", color: "#0F6E56", fontWeight: 500 }}>
-                                  Update
-                                </button>
-                                <button onClick={() => { setEditing(issue); setUpdating(null); setToDelete(null); setMassAdding(false); }}
-                                  style={{ ...btnBase, border: "1px solid #378ADD", background: "#E6F1FB", color: "#0C447C", fontWeight: 500 }}>
-                                  Edit
-                                </button>
+                                <button onClick={async () => { setUpdating(issue); setEditing(null); setToDelete(null); setMassAdding(false); if (!issue.is_read) { await markIssueRead(issue.id); load(); } }}
+  style={{ ...btnBase, border: "1px solid #1D9E75", background: "#E1F5EE", color: "#0F6E56", fontWeight: 500 }}>
+  Update
+</button>
+<button onClick={async () => { setEditing(issue); setUpdating(null); setToDelete(null); setMassAdding(false); if (!issue.is_read) { await markIssueRead(issue.id); load(); } }}
+  style={{ ...btnBase, border: "1px solid #378ADD", background: "#E6F1FB", color: "#0C447C", fontWeight: 500 }}>
+  Edit
+</button>
                                 <button onClick={() => confirmDelete([issue.id])}
                                   style={{ ...btnBase, border: "1px solid #E24B4A", background: "#FCEBEB", color: "#A32D2D" }}>
                                   Delete
