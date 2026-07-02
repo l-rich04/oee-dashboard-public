@@ -12,6 +12,7 @@ import WorkOrderPanel from "../components/WorkOrderPanel";
 import WeeklyLaborPanel from "../components/WeeklyLaborPanel";
 import ForemanManagePanel from "../components/ForemanManagePanel";
 import IssuesSummary from "../components/IssuesSummary";
+import MorningHuddle from "../components/MorningHuddle";
 
 function daysOld(createdAt) {
   const created = new Date(createdAt + "Z");
@@ -42,6 +43,7 @@ export default function SupervisorDashboard() {
   const [massAdding, setMassAdding]           = useState(false);
   const [expandedForemen, setExpandedForemen] = useState({});
   const [showSolved, setShowSolved]           = useState(false);
+  const [huddleOpen, setHuddleOpen] = useState(false);
 
   async function load() {
     const [data, sum] = await Promise.all([getIssues({}), getSummary(period)]);
@@ -624,21 +626,32 @@ img.onerror = () => { drawBadge(); };
         {activeTab === "oee" && (
           <>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
-              <div style={{ display: "flex", gap: 8 }}>
-                {["overview", "workorders", "downtime"].map(tab => (
-                  <button key={tab} onClick={() => setActiveOeeTab(tab)} style={{
-                    padding: "7px 16px", fontSize: 13, fontWeight: 500,
-                    border: `1px solid ${activeOeeTab === tab ? "#1D9E75" : "#eee"}`,
-                    borderRadius: 8, cursor: "pointer", fontFamily: "inherit",
-                    background: activeOeeTab === tab ? "#E1F5EE" : "#fff",
-                    color: activeOeeTab === tab ? "#0F6E56" : "#888",
-                  }}>
-                    {tab === "overview" ? "Overview" : tab === "workorders" ? "Work Orders" : "Downtime"}
-                  </button>
-                ))}
-              </div>
-              <OEEGoalsPanel onSaved={loadOEE} />
-            </div>
+  <div style={{ display: "flex", gap: 8 }}>
+    {["overview", "workorders", "downtime"].map(tab => (
+      <button key={tab} onClick={() => setActiveOeeTab(tab)} style={{
+        padding: "7px 16px", fontSize: 13, fontWeight: 500,
+        border: `1px solid ${activeOeeTab === tab ? "#1D9E75" : "#eee"}`,
+        borderRadius: 8, cursor: "pointer", fontFamily: "inherit",
+        background: activeOeeTab === tab ? "#E1F5EE" : "#fff",
+        color: activeOeeTab === tab ? "#0F6E56" : "#888",
+      }}>
+        {tab === "overview" ? "Overview" : tab === "workorders" ? "Work Orders" : "Downtime"}
+      </button>
+    ))}
+  </div>
+  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+    <button onClick={() => setHuddleOpen(true)} style={{
+      padding: "7px 16px", fontSize: 13, fontWeight: 500,
+      border: "1px solid #1D9E75", borderRadius: 8,
+      background: "#E1F5EE", color: "#0F6E56",
+      cursor: "pointer", fontFamily: "inherit",
+      display: "flex", alignItems: "center", gap: 6,
+    }}>
+      ▶ Start Huddle
+    </button>
+    <OEEGoalsPanel onSaved={loadOEE} />
+  </div>
+</div>
 
             {activeOeeTab === "overview" && (
               <OEEMetrics summary={oeeSummary} />
@@ -649,10 +662,18 @@ img.onerror = () => { drawBadge(); };
             )}
 
             {activeOeeTab === "downtime" && (
-              <WeeklyLaborPanel onSaved={loadOEE} />
-            )}
-          </>
-        )}
+            <WeeklyLaborPanel onSaved={loadOEE} />
+          )}
+
+          {huddleOpen && (
+            <MorningHuddle
+              summary={oeeSummary}
+              onClose={() => setHuddleOpen(false)}
+              onSaved={() => { load(); loadOEE(); }}
+            />
+          )}
+        </>
+      )}
 
       </main>
     </>
