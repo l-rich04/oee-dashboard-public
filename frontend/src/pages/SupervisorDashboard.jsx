@@ -33,7 +33,6 @@ export default function SupervisorDashboard() {
   const [summary, setSummary]                 = useState(null);
   const [oeeSummary, setOeeSummary]           = useState(null);
   const [foremen, setForemen]                 = useState([]);
-  const [filter, setFilter]                   = useState({ status: "", category: "" });
   const [period, setPeriod]                   = useState("ytd");
   const [updating, setUpdating]               = useState(null);
   const [editing, setEditing]                 = useState(null);
@@ -45,14 +44,11 @@ export default function SupervisorDashboard() {
   const [showSolved, setShowSolved]           = useState(false);
 
   async function load() {
-    const params = {};
-    if (filter.status)   params.status   = filter.status;
-    if (filter.category) params.category = filter.category;
-    const [data, sum] = await Promise.all([getIssues(params), getSummary(period)]);
-    setIssues(data);
-    setSummary(sum);
-    setCheckedIds(new Set());
-  }
+  const [data, sum] = await Promise.all([getIssues({}), getSummary(period)]);
+  setIssues(data);
+  setSummary(sum);
+  setCheckedIds(new Set());
+}
 
   async function loadOEE() {
     try {
@@ -73,12 +69,12 @@ export default function SupervisorDashboard() {
   }
 
   useEffect(() => {
-    if (authed) {
-      load();
-      loadOEE();
-      loadForemen();
-    }
-  }, [filter.status, filter.category, authed, period]);
+  if (authed) {
+    load();
+    loadOEE();
+    loadForemen();
+  }
+}, [authed, period]);
 
   
 
@@ -289,31 +285,7 @@ export default function SupervisorDashboard() {
               </div>
             )}
 
-            <div style={{ display: "flex", gap: 12, marginBottom: 16 }}>
-              <select value={filter.status}
-                onChange={e => setFilter(f => ({ ...f, status: e.target.value }))}
-                style={selectStyle}>
-                <option value="">All Statuses</option>
-                <option value="open">Open</option>
-                <option value="in_progress">In Progress</option>
-                <option value="solved">Solved</option>
-              </select>
-              <select value={filter.category}
-                onChange={e => setFilter(f => ({ ...f, category: e.target.value }))}
-                style={selectStyle}>
-                <option value="">All Categories</option>
-                <option value="defective_part">Defective Part</option>
-                <option value="wrong_spec">Wrong Specification</option>
-                <option value="missing_part">Missing Part</option>
-                <option value="supplier_issue">Supplier Issue</option>
-                <option value="in_house_damage">In House Damage</option>
-                <option value="machine_breakdown">Machine Breakdown</option>
-                <option value="setup_error">Setup Error</option>
-                <option value="quality_check_fail">Quality Check Fail</option>
-                <option value="safety_stop">Safety Stop</option>
-                <option value="lack_of_process">Lack Of Process</option>
-              </select>
-            </div>
+            
 
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
               <span style={{ fontSize: 13, color: "#888" }}>
@@ -339,11 +311,7 @@ export default function SupervisorDashboard() {
             )}
 
             {sortedForemen.map(foremanName => {
-              const foremanIssues = grouped[foremanName].filter(i => {
-                if (filter.status   && i.status   !== filter.status)   return false;
-                if (filter.category && i.category !== filter.category) return false;
-                return true;
-              });
+              const foremanIssues = grouped[foremanName];
 
               if (foremanIssues.length === 0) return null;
 
@@ -367,19 +335,22 @@ export default function SupervisorDashboard() {
                       background: "none", border: "none", cursor: "pointer",
                       fontFamily: "inherit", padding: 0, flex: 1, textAlign: "left",
                     }}>
-                      <span style={{ fontSize: 13, fontWeight: 500, color: "#333" }}>{foremanName}</span>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+  <span style={{ fontSize: 13, fontWeight: 500, color: "#333" }}>{foremanName}</span>
+  {newCount > 0 && (
+    <span style={{
+      background: "#E24B4A", color: "#fff",
+      fontSize: 9, fontWeight: 700,
+      padding: "1px 5px", borderRadius: 8,
+    }}>
+      {newCount} new
+    </span>
+  )}
+</div>
                     </button>
                     <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
                       <span style={{ fontSize: 12, color: "#888" }}>{foremanIssues.length} issue{foremanIssues.length !== 1 ? "s" : ""}</span>
-                      {newCount > 0 && (
-                        <span style={{
-                          background: "#E24B4A", color: "#fff",
-                          fontSize: 10, fontWeight: 700,
-                          padding: "1px 6px", borderRadius: 10,
-                        }}>
-                          {newCount} new
-                        </span>
-                      )}
+                      
                       {counts.open > 0 && <span style={{ fontSize: 11, color: "#854F0B" }}>{counts.open} open</span>}
                       {counts.in_progress > 0 && <span style={{ fontSize: 11, color: "#854F0B" }}>{counts.in_progress} in progress</span>}
                       <span onClick={() => toggleForeman(foremanName)} style={{
@@ -635,5 +606,4 @@ export default function SupervisorDashboard() {
 }
 
 const tdStyle     = { padding: "9px 12px", verticalAlign: "top" };
-const selectStyle = { padding: "8px 12px", fontSize: 14, border: "1px solid #ddd", borderRadius: 8, fontFamily: "inherit" };
 const btnBase     = { padding: "4px 10px", fontSize: 12, borderRadius: 6, cursor: "pointer", fontFamily: "inherit", background: "#fff", color: "#333" };
