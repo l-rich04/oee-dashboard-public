@@ -145,8 +145,8 @@ export default function SupervisorDashboard() {
   return (
     <>
       <Helmet>
-        <title>Supervisor Dashboard</title>
-      </Helmet>
+  <title>{unreadCount > 0 ? `(${unreadCount}) Supervisor Dashboard` : "Supervisor Dashboard"}</title>
+</Helmet>
       <main style={{ maxWidth: 1600, margin: "40px auto", padding: "0 24px" }}>
         <h1 style={{ fontSize: 22, fontWeight: 500, marginBottom: 4 }}>
           Supervisor Dashboard

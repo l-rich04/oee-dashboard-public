@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { submitIssue } from "../api/issues";
+import { useState, useEffect } from "react";
+import { submitIssue, getForemen } from "../api/issues";
 
 const CATEGORIES = {
   part: [
@@ -18,11 +18,6 @@ const CATEGORIES = {
   ],
 };
 
-const FOREMEN = [
-  "Rick", "Todd", "Duey", "Jordan", "Dan",
-  "Joel", "Willard", "Eric", "Brian", "Ralph", "QC", "Others",
-];
-
 const EMPTY = {
   issue_type:   "",
   category:     "",
@@ -35,13 +30,18 @@ export default function IssueForm() {
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading]     = useState(false);
   const [error, setError]         = useState(null);
+  const [foremen, setForemen]     = useState([]);
+
+  useEffect(() => {
+    getForemen()
+      .then(data => setForemen(data.map(f => f.name)))
+      .catch(err => console.error("Failed to load foremen:", err));
+  }, []);
 
   function set(field, value) {
     setForm(prev => {
       const next = { ...prev, [field]: value };
-      if (field === "issue_type") {
-        next.category = "";
-      }
+      if (field === "issue_type") next.category = "";
       return next;
     });
   }
@@ -145,7 +145,7 @@ export default function IssueForm() {
           onChange={e => set("foreman_name", e.target.value)}
           style={inputStyle}>
           <option value="">Select your name…</option>
-          {FOREMEN.map(name => (
+          {foremen.map(name => (
             <option key={name} value={name}>{name}</option>
           ))}
         </select>
