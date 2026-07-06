@@ -216,9 +216,10 @@ export default function WeeklyLaborPanel({ onSaved }) {
           <thead>
             <tr style={{ background: "#fafafa", borderBottom: "1px solid #eee", textAlign: "left" }}>
               <th style={thStyle}>Week</th>
-              <th style={thStyle}>Total HRS</th>
-              <th style={thStyle}>Indirect HRS</th>
-              <th style={thStyle}>Rework HRS</th>
+              <th style={thStyle}>Total hrs</th>
+              <th style={thStyle}>Indirect hrs</th>
+              <th style={thStyle}>Rework hrs</th>
+              <th style={thStyle}>Rework %</th>
               <th style={thStyle}>Availability</th>
               <th style={thStyle}>Notes</th>
               <th style={thStyle}></th>
@@ -230,6 +231,11 @@ export default function WeeklyLaborPanel({ onSaved }) {
                 ? Math.round(((e.total_labor_hours - e.indirect_hours - e.rework_hours) / e.total_labor_hours) * 100)
                 : 0;
               const availColor = avail >= 85 ? "#1D9E75" : avail >= 70 ? "#854F0B" : "#A32D2D";
+
+              const reworkPct      = e.total_labor_hours > 0
+                ? ((e.rework_hours / e.total_labor_hours) * 100).toFixed(1)
+                : "0.0";
+              const reworkPctColor = parseFloat(reworkPct) > 10 ? "#A32D2D" : parseFloat(reworkPct) > 5 ? "#854F0B" : "#1D9E75";
 
               if (editingId === e.id) {
                 return (
@@ -254,6 +260,9 @@ export default function WeeklyLaborPanel({ onSaved }) {
                         onChange={ev => setEditValues(p => ({ ...p, rework_hours: ev.target.value }))}
                         style={{ ...editInputStyle, width: 80 }} />
                     </td>
+                    <td style={{ ...tdStyle, color: reworkPctColor, fontWeight: 500 }}>{reworkPct}%</td>
+                    <td style={{ ...tdStyle, color: reworkPctColor, fontWeight: 500 }}>{reworkPct}%</td>
+                    <td style={{ ...tdStyle, color: availColor, fontWeight: 500 }}>{avail}%</td>
                     <td style={{ ...tdStyle, color: availColor, fontWeight: 500 }}>{avail}%</td>
                     <td style={tdStyle}>
                       <input type="text" value={editValues.notes}
@@ -284,6 +293,7 @@ export default function WeeklyLaborPanel({ onSaved }) {
                   <td style={tdStyle}>{e.total_labor_hours}</td>
                   <td style={tdStyle}>{e.indirect_hours}</td>
                   <td style={tdStyle}>{e.rework_hours}</td>
+                  <td style={{ ...tdStyle, color: reworkPctColor, fontWeight: 500 }}>{reworkPct}%</td>
                   <td style={{ ...tdStyle, color: availColor, fontWeight: 500 }}>{avail}%</td>
                   <td style={{ ...tdStyle, color: "#888" }}>{e.notes ?? "—"}</td>
                   <td style={tdStyle}>

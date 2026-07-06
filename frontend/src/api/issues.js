@@ -40,11 +40,12 @@ export async function getIssueUpdates(issueId) {
   return res.json();
 }
 
-export async function addIssueUpdate(issueId, note) {
+export async function addIssueUpdate(issueId, data) {
+  const body = typeof data === "string" ? { note: data } : data;
   const res = await fetch(`${BASE}/issues/${issueId}/updates`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ note }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(await res.text());
   return res.json();

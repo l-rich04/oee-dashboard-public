@@ -13,7 +13,7 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -352,14 +352,13 @@ def add_update(issue_id: int, data: IssueUpdateCreate, db: Session = Depends(get
                  .filter(IssueUpdateModel.issue_id == issue_id)\
                  .count()
 
-    if existing >= 3:
-        raise HTTPException(status_code=400, detail="Maximum 3 updates already reached")
-
+    
     update = IssueUpdateModel(
-        issue_id=issue_id,
-        update_num=existing + 1,
-        note=data.note,
+    issue_id=issue_id,
+    update_num=existing + 1,
+    note=data.note,
     )
+    
     db.add(update)
     db.commit()
     db.refresh(update)

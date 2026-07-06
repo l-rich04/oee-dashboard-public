@@ -43,7 +43,7 @@ export default function SupervisorDashboard() {
   const [massAdding, setMassAdding]           = useState(false);
   const [expandedForemen, setExpandedForemen] = useState({});
   const [showSolved, setShowSolved]           = useState(false);
-  const [huddleOpen, setHuddleOpen] = useState(false);
+  const [huddleOpen, setHuddleOpen]           = useState(false);
 
   async function load() {
     const [data, sum] = await Promise.all([getIssues({}), getSummary(period)]);
@@ -120,59 +120,49 @@ export default function SupervisorDashboard() {
   const solvedIssues = issues.filter(i => i.status === "solved");
   const unreadCount  = activeIssues.filter(i => !i.is_read).length;
 
-  // Auto-refresh favicon badge — must be after unreadCount
   useEffect(() => {
-  const canvas  = document.createElement("canvas");
-  canvas.width  = 32;
-  canvas.height = 32;
-  const ctx     = canvas.getContext("2d");
+    const canvas  = document.createElement("canvas");
+    canvas.width  = 32;
+    canvas.height = 32;
+    const ctx     = canvas.getContext("2d");
 
-  const svgData = `<svg width="32" height="32" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
-    <rect width="32" height="32" rx="6" fill="#1D9E75"/>
-    <rect x="4" y="20" width="4" height="8" rx="1" fill="white" opacity="0.9"/>
-    <rect x="10" y="14" width="4" height="14" rx="1" fill="white" opacity="0.9"/>
-    <rect x="16" y="9" width="4" height="19" rx="1" fill="white" opacity="0.9"/>
-    <rect x="22" y="16" width="4" height="12" rx="1" fill="white" opacity="0.9"/>
-    <polyline points="6,18 12,12 18,7 24,14" fill="none" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.6"/>
-  </svg>`;
+    const svgData = `<svg width="32" height="32" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+      <rect width="32" height="32" rx="6" fill="#1D9E75"/>
+      <rect x="4" y="20" width="4" height="8" rx="1" fill="white" opacity="0.9"/>
+      <rect x="10" y="14" width="4" height="14" rx="1" fill="white" opacity="0.9"/>
+      <rect x="16" y="9" width="4" height="19" rx="1" fill="white" opacity="0.9"/>
+      <rect x="22" y="16" width="4" height="12" rx="1" fill="white" opacity="0.9"/>
+      <polyline points="6,18 12,12 18,7 24,14" fill="none" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.6"/>
+    </svg>`;
 
-  const blob = new Blob([svgData], { type: "image/svg+xml" });
-  const url  = URL.createObjectURL(blob);
-  const img  = new Image();
-  img.src    = url;
-  img.onload = () => {
-    ctx.drawImage(img, 0, 0, 32, 32);
-    URL.revokeObjectURL(url);
-    if (unreadCount > 0) {
-      ctx.beginPath();
-      ctx.arc(22, 10, 11, 0, 2 * Math.PI);
-      ctx.fillStyle = "#E24B4A";
-      ctx.fill();
-      ctx.fillStyle = "#fff";
-      ctx.font      = "bold 11px Arial";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText(unreadCount > 9 ? "9+" : String(unreadCount), 22, 10);
-    }
-    let link = document.querySelector("link[rel~='icon']");
-    if (!link) {
-      link     = document.createElement("link");
-      link.rel = "icon";
-      document.head.appendChild(link);
-    }
-    link.type = "image/png";
-    link.href = canvas.toDataURL("image/png");
-  };
-}, [unreadCount]);
-
-    const img = new Image();
-img.crossOrigin = "anonymous";
-img.src   = "/favicon.svg";
-img.onload = () => {
-  ctx.drawImage(img, 0, 0, 32, 32);
-  drawBadge();
-};
-img.onerror = () => { drawBadge(); };
+    const blob = new Blob([svgData], { type: "image/svg+xml" });
+    const url  = URL.createObjectURL(blob);
+    const img  = new Image();
+    img.src    = url;
+    img.onload = () => {
+      ctx.drawImage(img, 0, 0, 32, 32);
+      URL.revokeObjectURL(url);
+      if (unreadCount > 0) {
+        ctx.beginPath();
+        ctx.arc(22, 10, 11, 0, 2 * Math.PI);
+        ctx.fillStyle = "#E24B4A";
+        ctx.fill();
+        ctx.fillStyle = "#fff";
+        ctx.font      = "bold 11px Arial";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(unreadCount > 9 ? "9+" : String(unreadCount), 22, 10);
+      }
+      let link = document.querySelector("link[rel~='icon']");
+      if (!link) {
+        link     = document.createElement("link");
+        link.rel = "icon";
+        document.head.appendChild(link);
+      }
+      link.type = "image/png";
+      link.href = canvas.toDataURL("image/png");
+    };
+  }, [unreadCount]);
 
   const grouped = activeIssues.reduce((acc, issue) => {
     const key = issue.foreman_name;
@@ -472,7 +462,7 @@ img.onerror = () => { drawBadge(); };
                             </td>
                             <td style={tdStyle}>{new Date(issue.created_at + "Z").toLocaleDateString()}</td>
                             <td style={{ ...tdStyle, fontSize: 12, color: "#888" }}>
-                              {issue.update_count ?? 0} / 3
+                              {issue.update_count ?? 0}
                             </td>
                             <td style={tdStyle}>
                               <div style={{ display: "flex", gap: 5, alignItems: "center", flexWrap: "wrap" }}>
@@ -626,32 +616,32 @@ img.onerror = () => { drawBadge(); };
         {activeTab === "oee" && (
           <>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
-  <div style={{ display: "flex", gap: 8 }}>
-    {["overview", "workorders", "downtime"].map(tab => (
-      <button key={tab} onClick={() => setActiveOeeTab(tab)} style={{
-        padding: "7px 16px", fontSize: 13, fontWeight: 500,
-        border: `1px solid ${activeOeeTab === tab ? "#1D9E75" : "#eee"}`,
-        borderRadius: 8, cursor: "pointer", fontFamily: "inherit",
-        background: activeOeeTab === tab ? "#E1F5EE" : "#fff",
-        color: activeOeeTab === tab ? "#0F6E56" : "#888",
-      }}>
-        {tab === "overview" ? "Overview" : tab === "workorders" ? "Work Orders" : "Downtime"}
-      </button>
-    ))}
-  </div>
-  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-    <button onClick={() => setHuddleOpen(true)} style={{
-      padding: "7px 16px", fontSize: 13, fontWeight: 500,
-      border: "1px solid #1D9E75", borderRadius: 8,
-      background: "#E1F5EE", color: "#0F6E56",
-      cursor: "pointer", fontFamily: "inherit",
-      display: "flex", alignItems: "center", gap: 6,
-    }}>
-      ▶ Start Huddle
-    </button>
-    <OEEGoalsPanel onSaved={loadOEE} />
-  </div>
-</div>
+              <div style={{ display: "flex", gap: 8 }}>
+                {["overview", "workorders", "downtime"].map(tab => (
+                  <button key={tab} onClick={() => setActiveOeeTab(tab)} style={{
+                    padding: "7px 16px", fontSize: 13, fontWeight: 500,
+                    border: `1px solid ${activeOeeTab === tab ? "#1D9E75" : "#eee"}`,
+                    borderRadius: 8, cursor: "pointer", fontFamily: "inherit",
+                    background: activeOeeTab === tab ? "#E1F5EE" : "#fff",
+                    color: activeOeeTab === tab ? "#0F6E56" : "#888",
+                  }}>
+                    {tab === "overview" ? "Overview" : tab === "workorders" ? "Work Orders" : "Downtime"}
+                  </button>
+                ))}
+              </div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <button onClick={() => setHuddleOpen(true)} style={{
+                  padding: "7px 16px", fontSize: 13, fontWeight: 500,
+                  border: "1px solid #1D9E75", borderRadius: 8,
+                  background: "#E1F5EE", color: "#0F6E56",
+                  cursor: "pointer", fontFamily: "inherit",
+                  display: "flex", alignItems: "center", gap: 6,
+                }}>
+                  ▶ Start Huddle
+                </button>
+                <OEEGoalsPanel onSaved={loadOEE} />
+              </div>
+            </div>
 
             {activeOeeTab === "overview" && (
               <OEEMetrics summary={oeeSummary} />
@@ -662,18 +652,18 @@ img.onerror = () => { drawBadge(); };
             )}
 
             {activeOeeTab === "downtime" && (
-            <WeeklyLaborPanel onSaved={loadOEE} />
-          )}
+              <WeeklyLaborPanel onSaved={loadOEE} />
+            )}
 
-          {huddleOpen && (
-            <MorningHuddle
-              summary={oeeSummary}
-              onClose={() => setHuddleOpen(false)}
-              onSaved={() => { load(); loadOEE(); }}
-            />
-          )}
-        </>
-      )}
+            {huddleOpen && (
+              <MorningHuddle
+                summary={oeeSummary}
+                onClose={() => setHuddleOpen(false)}
+                onSaved={() => { load(); loadOEE(); }}
+              />
+            )}
+          </>
+        )}
 
       </main>
     </>

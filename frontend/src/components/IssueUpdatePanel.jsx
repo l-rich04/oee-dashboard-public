@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
-import { getIssueUpdates, addIssueUpdate } from "../api/issues";
-import { updateIssue } from "../api/issues";
+import { getIssueUpdates, addIssueUpdate, updateIssue } from "../api/issues";
 
 function formatDateTime(ts) {
   return new Date(ts + "Z").toLocaleString([], {
@@ -16,19 +15,16 @@ const STATUS_STYLES = {
 };
 
 export default function IssueUpdatePanel({ issue, onClose, onSaved }) {
-  const [updates, setUpdates]     = useState([]);
-  const [status, setStatus]       = useState(issue.status);
-  const [note, setNote]           = useState("");
+  const [updates, setUpdates]       = useState([]);
+  const [status, setStatus]         = useState(issue.status);
+  const [note, setNote]             = useState("");
   const [resolution, setResolution] = useState(issue.resolution_note ?? "");
-  const [saving, setSaving]       = useState(false);
-  const [error, setError]         = useState(null);
+  const [saving, setSaving]         = useState(false);
+  const [error, setError]           = useState(null);
 
   useEffect(() => {
     getIssueUpdates(issue.id).then(setUpdates);
   }, [issue.id]);
-
-  const nextSlot = updates.length + 1;
-  const isFull   = updates.length >= 3;
 
   const isReady =
     status === "open" ||
@@ -45,8 +41,8 @@ export default function IssueUpdatePanel({ issue, onClose, onSaved }) {
         resolution_note: status === "solved" ? resolution.trim() : issue.resolution_note,
       });
 
-      if (status === "in_progress" && note.trim() && !isFull) {
-        await addIssueUpdate(issue.id, note.trim());
+      if (status === "in_progress" && note.trim()) {
+        await addIssueUpdate(issue.id, { note: note.trim() });
       }
 
       onSaved();
@@ -83,8 +79,8 @@ export default function IssueUpdatePanel({ issue, onClose, onSaved }) {
       <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
         {[
           { key: "open",        label: "Open" },
-{ key: "in_progress", label: "In Progress" },
-{ key: "solved",      label: "Solved" },
+          { key: "in_progress", label: "In Progress" },
+          { key: "solved",      label: "Solved" },
         ].map(({ key, label }) => {
           const active = status === key;
           const st = STATUS_STYLES[key];
@@ -114,66 +110,76 @@ export default function IssueUpdatePanel({ issue, onClose, onSaved }) {
 
       {status === "in_progress" && (
         <>
-          <p style={sectionLabel}>Daily updates</p>
-          {[1, 2, 3].map(slot => {
-            const filled = updates.find(u => u.update_num === slot);
-            const isNext = !isFull && slot === nextSlot;
-            const isPending = !filled && !isNext;
+          <p style={sectionLabel}>Updates ({updates.length} logged)</p>
 
-            return (
-              <div key={slot} style={{
-                border: `0.5px solid ${isNext ? "#1D9E75" : "#eee"}`,
-                borderRadius: 8, padding: 12, marginBottom: 10,
-                background: filled ? "#fafafa" : isNext ? "#f0faf6" : "#fff",
-              }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-                  <span style={{ fontSize: 12, fontWeight: 500, color: "#555" }}>Update {slot}</span>
-                  {filled && (
-                    <span style={{ fontSize: 11, color: "#1D9E75", fontWeight: 500 }}>
-                      {formatDateTime(filled.created_at)}
+          {updates.length > 0 && (
+            <div style={{ marginBottom: 14 }}>
+              {[...updates].reverse().map((u, idx) => (
+                <div key={u.id ?? idx} style={{
+                  border: "0.5px solid #eee", borderRadius: 8,
+                  padding: 12, marginBottom: 8, background: "#fafafa",
+                }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                    <span style={{ fontSize: 12, fontWeight: 500, color: "#555" }}>
+                      Update {updates.length - idx}
                     </span>
-                  )}
-                  {isNext && (
                     <span style={{ fontSize: 11, color: "#1D9E75", fontWeight: 500 }}>
-                      Today — add now
+                      {formatDateTime(u.created_at)}
                     </span>
-                  )}
-                  {isPending && (
-                    <span style={{ fontSize: 11, color: "#bbb" }}>Not yet added</span>
-                  )}
-                </div>
-                {filled && (
+                  </div>
                   <p style={{ margin: 0, fontSize: 13, color: "#333", lineHeight: 1.5 }}>
-                    {filled.note}
+                    {u.note}
                   </p>
-                )}
-                {isNext && (
-                  <textarea
-                    value={note}
-                    onChange={e => setNote(e.target.value)}
-                    rows={2}
-                    placeholder="What is the current status of this issue?"
-                    style={textareaStyle}
-                  />
-                )}
-                {isPending && (
-                  <p style={{ margin: 0, fontSize: 13, color: "#bbb", fontStyle: "italic" }}>
-                    Available after update {slot - 1} is added
-                  </p>
-                )}
-              </div>
-            );
-          })}
-          {isFull && (
-            <p style={{ fontSize: 12, color: "#0F6E56", margin: "0 0 16px" }}>
-              All 3 updates recorded.
-            </p>
+                </div>
+              ))}
+            </div>
           )}
+
+          <div style={{
+            border: "0.5px solid #1D9E75", borderRadius: 8,
+            padding: 12, background: "#f0faf6", marginBottom: 10,
+          }}>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+              <span style={{ fontSize: 12, fontWeight: 500, color: "#555" }}>
+                Add update #{updates.length + 1}
+              </span>
+              <span style={{ fontSize: 11, color: "#1D9E75", fontWeight: 500 }}>Today</span>
+            </div>
+            <textarea
+              value={note}
+              onChange={e => setNote(e.target.value)}
+              rows={2}
+              placeholder="What is the current status of this issue?"
+              style={textareaStyle}
+            />
+          </div>
         </>
       )}
 
       {status === "solved" && (
         <>
+          {updates.length > 0 && (
+            <div style={{ marginBottom: 14 }}>
+              <p style={sectionLabel}>Previous updates</p>
+              {[...updates].reverse().map((u, idx) => (
+                <div key={u.id ?? idx} style={{
+                  border: "0.5px solid #eee", borderRadius: 8,
+                  padding: 12, marginBottom: 8, background: "#fafafa",
+                }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                    <span style={{ fontSize: 12, fontWeight: 500, color: "#555" }}>
+                      Update {updates.length - idx}
+                    </span>
+                    <span style={{ fontSize: 11, color: "#888" }}>
+                      {formatDateTime(u.created_at)}
+                    </span>
+                  </div>
+                  <p style={{ margin: 0, fontSize: 13, color: "#333", lineHeight: 1.5 }}>{u.note}</p>
+                </div>
+              ))}
+              <div style={divider} />
+            </div>
+          )}
           <p style={sectionLabel}>Resolution note</p>
           <p style={{ fontSize: 12, color: "#888", margin: "0 0 8px" }}>
             Describe how this issue was resolved.
@@ -213,8 +219,8 @@ export default function IssueUpdatePanel({ issue, onClose, onSaved }) {
   );
 }
 
-const divider      = { height: "0.5px", background: "#eee", margin: "0 0 16px" };
-const sectionLabel = { fontSize: 12, fontWeight: 500, color: "#555", margin: "0 0 8px" };
+const divider       = { height: "0.5px", background: "#eee", margin: "0 0 16px" };
+const sectionLabel  = { fontSize: 12, fontWeight: 500, color: "#555", margin: "0 0 8px" };
 const textareaStyle = {
   width: "100%", padding: "8px 10px", fontSize: 13,
   border: "0.5px solid #ddd", borderRadius: 8,
