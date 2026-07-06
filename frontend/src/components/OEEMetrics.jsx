@@ -355,7 +355,7 @@ export default function OEEMetrics({ summary }) {
       <p style={{ fontSize: 11, color: "#aaa", margin: "0 0 14px" }}>{periodData.label}</p>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 10 }}>
-        <MetricCard label="Overall OEE"  value={`${periodData.oee}%`}          sub={period === "week" ? "Last Week" : "Period AVG"} color={oeeColor} />
+        <MetricCard label="Overall Efficiency"  value={`${periodData.oee}%`}          sub={period === "week" ? "Last Week" : "Period AVG"} color={oeeColor} />
         <MetricCard label="Availability" value={`${periodData.availability}%`} sub="Downtime / Total Labor Hours"                   color={availColor} />
         <MetricCard label="Performance"  value={`${periodData.performance}%`}  sub="Actual vs Target"                               color={perfColor} />
         <MetricCard label="Quality"      value={`${periodData.quality}%`}      sub="Goal / Actual DPU"                              color={qualColor} />
