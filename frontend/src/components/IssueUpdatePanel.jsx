@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { getIssueUpdates, addIssueUpdate, updateIssue } from "../api/issues";
+import { getIssueUpdates, addIssueUpdate, updateIssue, editIssueUpdate, deleteIssueUpdate, getSupervisors } from "../api/issues";
 
 function formatDateTime(ts) {
   return new Date(ts + "Z").toLocaleString([], {
@@ -15,21 +15,28 @@ const STATUS_STYLES = {
 };
 
 export default function IssueUpdatePanel({ issue, onClose, onSaved }) {
-  const [updates, setUpdates]       = useState([]);
-  const [status, setStatus]         = useState(issue.status);
-  const [note, setNote]             = useState("");
-  const [resolution, setResolution] = useState(issue.resolution_note ?? "");
-  const [saving, setSaving]         = useState(false);
-  const [error, setError]           = useState(null);
+  const [updates, setUpdates]         = useState([]);
+  const [supervisorList, setSupervisorList] = useState([]);
+  const [status, setStatus]           = useState(issue.status);
+  const [note, setNote]               = useState("");
+  const [madeBy, setMadeBy]           = useState("");
+  const [solvedBy, setSolvedBy]       = useState(issue.solved_by ?? "");
+  const [resolution, setResolution]   = useState(issue.resolution_note ?? "");
+  const [saving, setSaving]           = useState(false);
+  const [error, setError]             = useState(null);
+  const [editingId, setEditingId]     = useState(null);
+  const [editText, setEditText]       = useState("");
+  const [editMadeBy, setEditMadeBy]   = useState("");
 
   useEffect(() => {
     getIssueUpdates(issue.id).then(setUpdates);
+    getSupervisors().then(data => setSupervisorList(data.map(s => s.name)));
   }, [issue.id]);
 
   const isReady =
     status === "open" ||
-    (status === "in_progress" && note.trim()) ||
-    (status === "solved" && resolution.trim());
+    (status === "in_progress" && note.trim() && madeBy) ||
+    (status === "solved" && resolution.trim() && solvedBy);
 
   async function handleSave() {
     if (!isReady) return;
@@ -39,12 +46,11 @@ export default function IssueUpdatePanel({ issue, onClose, onSaved }) {
       await updateIssue(issue.id, {
         status,
         resolution_note: status === "solved" ? resolution.trim() : issue.resolution_note,
+        solved_by:       status === "solved" ? solvedBy : issue.solved_by,
       });
-
       if (status === "in_progress" && note.trim()) {
-        await addIssueUpdate(issue.id, { note: note.trim() });
+        await addIssueUpdate(issue.id, { note: note.trim(), made_by: madeBy });
       }
-
       onSaved();
       onClose();
     } catch (err) {
@@ -52,6 +58,111 @@ export default function IssueUpdatePanel({ issue, onClose, onSaved }) {
     } finally {
       setSaving(false);
     }
+  }
+
+  async function handleEditSave(u) {
+    if (!editText.trim()) return;
+    try {
+      await editIssueUpdate(issue.id, u.id, editText.trim(), editMadeBy || u.made_by);
+      setEditingId(null);
+      setEditText("");
+      setEditMadeBy("");
+      reloadUpdates();
+    } catch (err) {
+      setError("Could not save edit.");
+    }
+  }
+
+  async function handleDelete(u) {
+    try {
+      await deleteIssueUpdate(issue.id, u.id);
+      reloadUpdates();
+      onSaved();
+    } catch (err) {
+      setError("Could not delete update.");
+    }
+  }
+
+  async function reloadUpdates() {
+    const data = await getIssueUpdates(issue.id);
+    setUpdates(data);
+  }
+
+  function renderUpdate(u, idx) {
+    const isEditing = editingId === u.id;
+    return (
+      <div key={u.id ?? idx} style={{
+        border: `0.5px solid ${isEditing ? "#378ADD" : "#eee"}`,
+        borderRadius: 8, padding: 12, marginBottom: 8,
+        background: isEditing ? "#EEF5FC" : "#fafafa",
+      }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+          <span style={{ fontSize: 12, fontWeight: 500, color: "#555" }}>
+            Update {idx + 1}
+          </span>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            {u.made_by && (
+              <span style={{
+                fontSize: 11, background: "#f0f0f0", color: "#555",
+                padding: "1px 7px", borderRadius: 8, fontWeight: 500,
+              }}>
+                {u.made_by}
+              </span>
+            )}
+            <span style={{ fontSize: 11, color: "#888" }}>
+              {formatDateTime(u.created_at)}
+            </span>
+            {!isEditing && (
+              <>
+                <button onClick={() => { setEditingId(u.id); setEditText(u.note); setEditMadeBy(u.made_by ?? ""); }} style={{
+                  padding: "2px 8px", fontSize: 11,
+                  border: "1px solid #378ADD", background: "#E6F1FB",
+                  color: "#0C447C", borderRadius: 5, cursor: "pointer", fontFamily: "inherit",
+                }}>Edit</button>
+                <button onClick={() => handleDelete(u)} style={{
+                  padding: "2px 8px", fontSize: 11,
+                  border: "1px solid #E24B4A", background: "#FCEBEB",
+                  color: "#A32D2D", borderRadius: 5, cursor: "pointer", fontFamily: "inherit",
+                }}>Delete</button>
+              </>
+            )}
+          </div>
+        </div>
+
+        {isEditing ? (
+          <>
+            <select
+              value={editMadeBy}
+              onChange={e => setEditMadeBy(e.target.value)}
+              style={{ ...selectStyle, marginBottom: 6 }}>
+              <option value="">Who made this update?</option>
+              {supervisorList.map(n => <option key={n} value={n}>{n}</option>)}
+            </select>
+            <textarea
+              value={editText}
+              onChange={e => setEditText(e.target.value)}
+              rows={2}
+              style={textareaStyle}
+              autoFocus
+            />
+            <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+              <button onClick={() => handleEditSave(u)} style={{
+                padding: "4px 12px", fontSize: 11, border: "none",
+                background: "#1D9E75", color: "#fff", borderRadius: 6,
+                cursor: "pointer", fontFamily: "inherit",
+              }}>Save</button>
+              <button onClick={() => { setEditingId(null); setEditText(""); setEditMadeBy(""); }} style={{
+                padding: "4px 10px", fontSize: 11,
+                border: "0.5px solid #ddd", background: "#fff",
+                color: "#888", borderRadius: 6, cursor: "pointer", fontFamily: "inherit",
+              }}>Cancel</button>
+            </div>
+          </>
+        ) : (
+          <p style={{ margin: 0, fontSize: 13, color: "#333", lineHeight: 1.5 }}>{u.note}</p>
+        )}
+      </div>
+    );
   }
 
   return (
@@ -111,40 +222,28 @@ export default function IssueUpdatePanel({ issue, onClose, onSaved }) {
       {status === "in_progress" && (
         <>
           <p style={sectionLabel}>Updates ({updates.length} logged)</p>
-
           {updates.length > 0 && (
             <div style={{ marginBottom: 14 }}>
-              {[...updates].reverse().map((u, idx) => (
-                <div key={u.id ?? idx} style={{
-                  border: "0.5px solid #eee", borderRadius: 8,
-                  padding: 12, marginBottom: 8, background: "#fafafa",
-                }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                    <span style={{ fontSize: 12, fontWeight: 500, color: "#555" }}>
-                      Update {updates.length - idx}
-                    </span>
-                    <span style={{ fontSize: 11, color: "#1D9E75", fontWeight: 500 }}>
-                      {formatDateTime(u.created_at)}
-                    </span>
-                  </div>
-                  <p style={{ margin: 0, fontSize: 13, color: "#333", lineHeight: 1.5 }}>
-                    {u.note}
-                  </p>
-                </div>
-              ))}
+              {[...updates].reverse().map((u, idx) => renderUpdate(u, updates.length - 1 - idx))}
             </div>
           )}
-
           <div style={{
             border: "0.5px solid #1D9E75", borderRadius: 8,
             padding: 12, background: "#f0faf6", marginBottom: 10,
           }}>
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
               <span style={{ fontSize: 12, fontWeight: 500, color: "#555" }}>
                 Add update #{updates.length + 1}
               </span>
               <span style={{ fontSize: 11, color: "#1D9E75", fontWeight: 500 }}>Today</span>
             </div>
+            <select
+              value={madeBy}
+              onChange={e => setMadeBy(e.target.value)}
+              style={{ ...selectStyle, marginBottom: 8 }}>
+              <option value="">Who is making this update?</option>
+              {supervisorList.map(n => <option key={n} value={n}>{n}</option>)}
+            </select>
             <textarea
               value={note}
               onChange={e => setNote(e.target.value)}
@@ -161,25 +260,20 @@ export default function IssueUpdatePanel({ issue, onClose, onSaved }) {
           {updates.length > 0 && (
             <div style={{ marginBottom: 14 }}>
               <p style={sectionLabel}>Previous updates</p>
-              {[...updates].reverse().map((u, idx) => (
-                <div key={u.id ?? idx} style={{
-                  border: "0.5px solid #eee", borderRadius: 8,
-                  padding: 12, marginBottom: 8, background: "#fafafa",
-                }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                    <span style={{ fontSize: 12, fontWeight: 500, color: "#555" }}>
-                      Update {updates.length - idx}
-                    </span>
-                    <span style={{ fontSize: 11, color: "#888" }}>
-                      {formatDateTime(u.created_at)}
-                    </span>
-                  </div>
-                  <p style={{ margin: 0, fontSize: 13, color: "#333", lineHeight: 1.5 }}>{u.note}</p>
-                </div>
-              ))}
+              {[...updates].reverse().map((u, idx) => renderUpdate(u, updates.length - 1 - idx))}
               <div style={divider} />
             </div>
           )}
+
+          <p style={sectionLabel}>Solved by</p>
+          <select
+            value={solvedBy}
+            onChange={e => setSolvedBy(e.target.value)}
+            style={{ ...selectStyle, marginBottom: 16 }}>
+            <option value="">Who solved this issue?</option>
+            {supervisorList.map(n => <option key={n} value={n}>{n}</option>)}
+          </select>
+
           <p style={sectionLabel}>Resolution note</p>
           <p style={{ fontSize: 12, color: "#888", margin: "0 0 8px" }}>
             Describe how this issue was resolved.
@@ -191,6 +285,12 @@ export default function IssueUpdatePanel({ issue, onClose, onSaved }) {
             placeholder="e.g. Replaced faulty conveyor belt. Machine back in operation."
             style={textareaStyle}
           />
+
+          {issue.solved_by && status === "solved" && (
+            <p style={{ fontSize: 12, color: "#888", margin: "8px 0 0" }}>
+              Previously solved by: <span style={{ fontWeight: 500, color: "#555" }}>{issue.solved_by}</span>
+            </p>
+          )}
         </>
       )}
 
@@ -226,4 +326,9 @@ const textareaStyle = {
   border: "0.5px solid #ddd", borderRadius: 8,
   fontFamily: "inherit", resize: "none", outline: "none",
   boxSizing: "border-box", background: "#fff",
+};
+const selectStyle = {
+  width: "100%", padding: "7px 10px", fontSize: 12,
+  border: "0.5px solid #ddd", borderRadius: 8,
+  fontFamily: "inherit", background: "#fff", boxSizing: "border-box",
 };

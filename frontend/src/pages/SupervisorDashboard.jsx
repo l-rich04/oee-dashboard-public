@@ -13,6 +13,7 @@ import WeeklyLaborPanel from "../components/WeeklyLaborPanel";
 import ForemanManagePanel from "../components/ForemanManagePanel";
 import IssuesSummary from "../components/IssuesSummary";
 import MorningHuddle from "../components/MorningHuddle";
+import SupervisorManagePanel from "../components/SupervisorManagePanel";
 
 function daysOld(createdAt) {
   const created = new Date(createdAt + "Z");
@@ -243,6 +244,7 @@ export default function SupervisorDashboard() {
               <h2 style={{ fontSize: 16, fontWeight: 500, margin: 0 }}>All Issues</h2>
               <div style={{ display: "flex", gap: 8 }}>
                 <ForemanManagePanel onChanged={loadForemen} />
+                <SupervisorManagePanel onChanged={() => {}} />
                 <button
                   onClick={() => {
                     setMassAdding(prev => !prev);

@@ -15,6 +15,7 @@ function formatWeek(dateStr) {
 export default function WeeklyLaborPanel({ onSaved }) {
   const [entries, setEntries]                 = useState([]);
   const [weekStart, setWeekStart]             = useState(getWeekStart());
+  const [workingDays, setWorkingDays]         = useState(5);
   const [totalLaborHours, setTotalLaborHours] = useState("");
   const [indirectHours, setIndirectHours]     = useState("");
   const [reworkHours, setReworkHours]         = useState("");
@@ -59,6 +60,7 @@ export default function WeeklyLaborPanel({ onSaved }) {
     try {
       await saveIndirectLabor({
         week_start:        weekStart,
+        working_days:      Number(workingDays),
         total_labor_hours: Number(totalLaborHours),
         indirect_hours:    Number(indirectHours),
         rework_hours:      reworkHours !== "" ? Number(reworkHours) : 0,
@@ -66,6 +68,7 @@ export default function WeeklyLaborPanel({ onSaved }) {
       });
       setSuccessMsg("Weekly labor hours saved.");
       setTimeout(() => setSuccessMsg(null), 3000);
+      setWorkingDays(5);
       setTotalLaborHours("");
       setIndirectHours("");
       setReworkHours("");
@@ -89,6 +92,7 @@ export default function WeeklyLaborPanel({ onSaved }) {
     setEditingId(entry.id);
     setEditValues({
       week_start:        entry.week_start,
+      working_days:      entry.working_days ?? 5,
       total_labor_hours: entry.total_labor_hours,
       indirect_hours:    entry.indirect_hours,
       rework_hours:      entry.rework_hours,
@@ -101,6 +105,7 @@ export default function WeeklyLaborPanel({ onSaved }) {
     try {
       await saveIndirectLabor({
         week_start:        editValues.week_start,
+        working_days:      Number(editValues.working_days),
         total_labor_hours: Number(editValues.total_labor_hours),
         indirect_hours:    Number(editValues.indirect_hours),
         rework_hours:      Number(editValues.rework_hours),
@@ -119,16 +124,27 @@ export default function WeeklyLaborPanel({ onSaved }) {
     <div style={{ marginBottom: 24 }}>
       <h3 style={{ fontSize: 15, fontWeight: 500, margin: "0 0 6px" }}>Weekly Labor Hours</h3>
       <p style={{ fontSize: 12, color: "#888", margin: "0 0 16px" }}>
-        Log Total, Indirect, and Rework Hours Each Week. Availability is the amount of time actually spent on trucks.
+        Log Total, Indirect, and Rework Hours Each Week. Set working days to less than 5 for short weeks — performance target adjusts automatically.
       </p>
 
       <div style={{
-        display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))",
+        display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
         gap: 10, marginBottom: 16, alignItems: "end",
       }}>
         <div>
           <label style={labelStyle}>Week Starting</label>
           <input type="date" value={weekStart} onChange={e => setWeekStart(e.target.value)} style={inputStyle} />
+        </div>
+        <div>
+          <label style={labelStyle}>Working Days</label>
+          <select
+            value={workingDays}
+            onChange={e => setWorkingDays(Number(e.target.value))}
+            style={inputStyle}>
+            {[1, 2, 3, 4, 5].map(d => (
+              <option key={d} value={d}>{d} day{d !== 1 ? "s" : ""}{d === 5 ? " (full week)" : " (short week)"}</option>
+            ))}
+          </select>
         </div>
         <div>
           <label style={labelStyle}>Total Labor Hours</label>
@@ -184,6 +200,12 @@ export default function WeeklyLaborPanel({ onSaved }) {
         </div>
       </div>
 
+      {workingDays < 5 && (
+        <div style={{ padding: "10px 14px", background: "#FAEEDA", border: "0.5px solid #EF9F27", borderRadius: 8, fontSize: 12, color: "#854F0B", marginBottom: 12 }}>
+          Short week — performance target will be adjusted to {workingDays}/5 of the normal target.
+        </div>
+      )}
+
       {successMsg && (
         <div style={{ padding: "10px 14px", background: "#E1F5EE", borderRadius: 8, fontSize: 13, color: "#0F6E56", marginBottom: 12 }}>
           {successMsg}
@@ -216,6 +238,7 @@ export default function WeeklyLaborPanel({ onSaved }) {
           <thead>
             <tr style={{ background: "#fafafa", borderBottom: "1px solid #eee", textAlign: "left" }}>
               <th style={thStyle}>Week</th>
+              <th style={thStyle}>Days</th>
               <th style={thStyle}>Total hrs</th>
               <th style={thStyle}>Indirect hrs</th>
               <th style={thStyle}>Rework hrs</th>
@@ -227,11 +250,11 @@ export default function WeeklyLaborPanel({ onSaved }) {
           </thead>
           <tbody>
             {filteredEntries.map(e => {
+              const days = e.working_days ?? 5;
               const avail = e.total_labor_hours > 0
                 ? Math.round(((e.total_labor_hours - e.indirect_hours - e.rework_hours) / e.total_labor_hours) * 100)
                 : 0;
               const availColor = avail >= 85 ? "#1D9E75" : avail >= 70 ? "#854F0B" : "#A32D2D";
-
               const reworkPct      = e.total_labor_hours > 0
                 ? ((e.rework_hours / e.total_labor_hours) * 100).toFixed(1)
                 : "0.0";
@@ -246,28 +269,33 @@ export default function WeeklyLaborPanel({ onSaved }) {
                         style={{ ...editInputStyle, width: 130 }} />
                     </td>
                     <td style={tdStyle}>
+                      <select value={editValues.working_days}
+                        onChange={ev => setEditValues(p => ({ ...p, working_days: Number(ev.target.value) }))}
+                        style={{ ...editInputStyle, width: 60 }}>
+                        {[1,2,3,4,5].map(d => <option key={d} value={d}>{d}</option>)}
+                      </select>
+                    </td>
+                    <td style={tdStyle}>
                       <input type="number" min="0" step="0.5" value={editValues.total_labor_hours}
                         onChange={ev => setEditValues(p => ({ ...p, total_labor_hours: ev.target.value }))}
-                        style={{ ...editInputStyle, width: 80 }} />
+                        style={{ ...editInputStyle, width: 70 }} />
                     </td>
                     <td style={tdStyle}>
                       <input type="number" min="0" step="0.5" value={editValues.indirect_hours}
                         onChange={ev => setEditValues(p => ({ ...p, indirect_hours: ev.target.value }))}
-                        style={{ ...editInputStyle, width: 80 }} />
+                        style={{ ...editInputStyle, width: 70 }} />
                     </td>
                     <td style={tdStyle}>
                       <input type="number" min="0" step="0.5" value={editValues.rework_hours}
                         onChange={ev => setEditValues(p => ({ ...p, rework_hours: ev.target.value }))}
-                        style={{ ...editInputStyle, width: 80 }} />
+                        style={{ ...editInputStyle, width: 70 }} />
                     </td>
                     <td style={{ ...tdStyle, color: reworkPctColor, fontWeight: 500 }}>{reworkPct}%</td>
-                    <td style={{ ...tdStyle, color: reworkPctColor, fontWeight: 500 }}>{reworkPct}%</td>
-                    <td style={{ ...tdStyle, color: availColor, fontWeight: 500 }}>{avail}%</td>
                     <td style={{ ...tdStyle, color: availColor, fontWeight: 500 }}>{avail}%</td>
                     <td style={tdStyle}>
                       <input type="text" value={editValues.notes}
                         onChange={ev => setEditValues(p => ({ ...p, notes: ev.target.value }))}
-                        style={{ ...editInputStyle, width: 120 }} />
+                        style={{ ...editInputStyle, width: 100 }} />
                     </td>
                     <td style={tdStyle}>
                       <div style={{ display: "flex", gap: 6 }}>
@@ -290,6 +318,14 @@ export default function WeeklyLaborPanel({ onSaved }) {
               return (
                 <tr key={e.id} style={{ borderBottom: "0.5px solid #f0f0f0" }}>
                   <td style={tdStyle}>{formatWeek(e.week_start)}</td>
+                  <td style={tdStyle}>
+                    <span style={{
+                      fontSize: 11, fontWeight: 500,
+                      background: days < 5 ? "#FAEEDA" : "#f0f0f0",
+                      color: days < 5 ? "#854F0B" : "#555",
+                      padding: "1px 6px", borderRadius: 6,
+                    }}>{days}d</span>
+                  </td>
                   <td style={tdStyle}>{e.total_labor_hours}</td>
                   <td style={tdStyle}>{e.indirect_hours}</td>
                   <td style={tdStyle}>{e.rework_hours}</td>
@@ -325,8 +361,8 @@ export default function WeeklyLaborPanel({ onSaved }) {
   );
 }
 
-const labelStyle    = { display: "block", fontSize: 12, fontWeight: 500, color: "#555", marginBottom: 4 };
-const inputStyle    = { width: "100%", padding: "8px 10px", fontSize: 13, border: "1px solid #ddd", borderRadius: 8, fontFamily: "inherit", boxSizing: "border-box" };
-const tdStyle       = { padding: "9px 12px", verticalAlign: "middle" };
-const thStyle       = { padding: "8px 12px", fontWeight: 500, color: "#555" };
+const labelStyle     = { display: "block", fontSize: 12, fontWeight: 500, color: "#555", marginBottom: 4 };
+const inputStyle     = { width: "100%", padding: "8px 10px", fontSize: 13, border: "1px solid #ddd", borderRadius: 8, fontFamily: "inherit", boxSizing: "border-box" };
+const tdStyle        = { padding: "9px 12px", verticalAlign: "middle" };
+const thStyle        = { padding: "8px 12px", fontWeight: 500, color: "#555" };
 const editInputStyle = { padding: "4px 6px", fontSize: 11, border: "0.5px solid #ddd", borderRadius: 6, fontFamily: "inherit", boxSizing: "border-box" };

@@ -4,8 +4,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from datetime import datetime, date, timedelta
 from typing import Optional
-
-from database import Base, engine, get_db, Issue, IssueUpdate, WorkOrder, DowntimeLog, OEEGoals, ReworkHours, Foreman, GoalHistory, IndirectLabor
+from database import Base, engine, get_db, Issue, IssueUpdate, WorkOrder, DowntimeLog, OEEGoals, ReworkHours, Foreman, GoalHistory, IndirectLabor, Supervisor
 
 Base.metadata.create_all(bind=engine)
 
@@ -32,6 +31,7 @@ class IssueCreate(BaseModel):
 class IssueUpdateSchema(BaseModel):
     status:          Optional[str] = None
     resolution_note: Optional[str] = None
+    solved_by:       Optional[str] = None
     issue_type:      Optional[str] = None
     category:        Optional[str] = None
     description:     Optional[str] = None
@@ -46,6 +46,7 @@ class IssueOut(BaseModel):
     foreman_name:    str
     status:          str
     resolution_note: Optional[str]
+    solved_by:       Optional[str] = None
     created_at:      datetime
     updated_at:      datetime
     production_id:   Optional[int]
@@ -56,7 +57,8 @@ class IssueOut(BaseModel):
 
 
 class IssueUpdateCreate(BaseModel):
-    note: str
+    note:    str
+    made_by: Optional[str] = None
 
 
 class IssueUpdateOut(BaseModel):
@@ -64,6 +66,7 @@ class IssueUpdateOut(BaseModel):
     issue_id:   int
     update_num: int
     note:       str
+    made_by:    Optional[str] = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -108,6 +111,7 @@ class ReworkOut(BaseModel):
 
 class IndirectLaborCreate(BaseModel):
     week_start:        str
+    working_days:      int = 5
     total_labor_hours: float
     indirect_hours:    float
     rework_hours:      float = 0
@@ -117,6 +121,7 @@ class IndirectLaborCreate(BaseModel):
 class IndirectLaborOut(BaseModel):
     id:                int
     week_start:        str
+    working_days:      int
     total_labor_hours: float
     indirect_hours:    float
     rework_hours:      float
@@ -151,6 +156,18 @@ class ForemanCreate(BaseModel):
 
 
 class ForemanOut(BaseModel):
+    id:         int
+    name:       str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class SupervisorCreate(BaseModel):
+    name: str
+
+
+class SupervisorOut(BaseModel):
     id:         int
     name:       str
     created_at: datetime
@@ -306,6 +323,7 @@ def update_issue(issue_id: int, data: IssueUpdateSchema, db: Session = Depends(g
         issue.status = data.status
 
     if data.resolution_note is not None: issue.resolution_note = data.resolution_note
+    if data.solved_by       is not None: issue.solved_by       = data.solved_by
     if data.issue_type      is not None: issue.issue_type      = data.issue_type
     if data.category        is not None: issue.category        = data.category
     if data.description     is not None: issue.description     = data.description
@@ -352,17 +370,48 @@ def add_update(issue_id: int, data: IssueUpdateCreate, db: Session = Depends(get
                  .filter(IssueUpdateModel.issue_id == issue_id)\
                  .count()
 
-    
     update = IssueUpdateModel(
-    issue_id=issue_id,
-    update_num=existing + 1,
-    note=data.note,
+        issue_id=issue_id,
+        update_num=existing + 1,
+        note=data.note,
+        made_by=data.made_by,
     )
-    
     db.add(update)
+    issue.is_read    = False
+    issue.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(update)
     return update
+
+
+@app.put("/issues/{issue_id}/updates/{update_id}", response_model=IssueUpdateOut)
+def edit_update(issue_id: int, update_id: int, data: IssueUpdateCreate, db: Session = Depends(get_db)):
+    from database import IssueUpdate as IssueUpdateModel
+    update = db.query(IssueUpdateModel).filter(
+        IssueUpdateModel.id == update_id,
+        IssueUpdateModel.issue_id == issue_id
+    ).first()
+    if not update:
+        raise HTTPException(status_code=404, detail="Update not found")
+    update.note    = data.note
+    update.made_by = data.made_by
+    db.commit()
+    db.refresh(update)
+    return update
+
+
+@app.delete("/issues/{issue_id}/updates/{update_id}", status_code=204)
+def delete_update(issue_id: int, update_id: int, db: Session = Depends(get_db)):
+    from database import IssueUpdate as IssueUpdateModel
+    update = db.query(IssueUpdateModel).filter(
+        IssueUpdateModel.id == update_id,
+        IssueUpdateModel.issue_id == issue_id
+    ).first()
+    if not update:
+        raise HTTPException(status_code=404, detail="Update not found")
+    db.delete(update)
+    db.commit()
+    return
 
 
 @app.put("/issues/{issue_id}/read", response_model=IssueOut)
@@ -444,6 +493,7 @@ def delete_rework(rework_id: int, db: Session = Depends(get_db)):
 def upsert_indirect_labor(data: IndirectLaborCreate, db: Session = Depends(get_db)):
     existing = db.query(IndirectLabor).filter(IndirectLabor.week_start == data.week_start).first()
     if existing:
+        existing.working_days      = data.working_days
         existing.total_labor_hours = data.total_labor_hours
         existing.indirect_hours    = data.indirect_hours
         existing.rework_hours      = data.rework_hours
@@ -502,6 +552,38 @@ def delete_foreman(foreman_id: int, db: Session = Depends(get_db)):
     if not foreman:
         raise HTTPException(status_code=404, detail="Foreman not found")
     db.delete(foreman)
+    db.commit()
+    return
+
+
+# --- Supervisor endpoints ---
+
+@app.get("/supervisors", response_model=list[SupervisorOut])
+def get_supervisors(db: Session = Depends(get_db)):
+    return db.query(Supervisor).order_by(Supervisor.created_at.asc()).all()
+
+
+@app.post("/supervisors", response_model=SupervisorOut, status_code=201)
+def create_supervisor(data: SupervisorCreate, db: Session = Depends(get_db)):
+    name = data.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Name cannot be empty")
+    existing = db.query(Supervisor).filter(Supervisor.name == name).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Supervisor already exists")
+    supervisor = Supervisor(name=name)
+    db.add(supervisor)
+    db.commit()
+    db.refresh(supervisor)
+    return supervisor
+
+
+@app.delete("/supervisors/{supervisor_id}", status_code=204)
+def delete_supervisor(supervisor_id: int, db: Session = Depends(get_db)):
+    supervisor = db.query(Supervisor).filter(Supervisor.id == supervisor_id).first()
+    if not supervisor:
+        raise HTTPException(status_code=404, detail="Supervisor not found")
+    db.delete(supervisor)
     db.commit()
     return
 
@@ -599,10 +681,9 @@ def get_oee_summary(db: Session = Depends(get_db)):
         db.add(goals)
         db.commit()
 
-    work_orders    = db.query(WorkOrder).all()
-    indirect_logs  = db.query(IndirectLabor).all()
+    work_orders   = db.query(WorkOrder).all()
+    indirect_logs = db.query(IndirectLabor).all()
 
-    # Last week metrics
     last_week_wo  = [wo for wo in work_orders if wo.week_start == str(last_week)]
     total_trucks  = len(last_week_wo)
     total_defects = sum(wo.total_defects for wo in last_week_wo)
@@ -610,7 +691,6 @@ def get_oee_summary(db: Session = Depends(get_db)):
     weekly_target     = (goals.weekly_trucks_min + goals.weekly_trucks_max) / 2
     avg_dpu_last_week = round(total_defects / total_trucks, 2) if total_trucks > 0 else 0
 
-    # Quality
     if avg_dpu_last_week == 0:
         quality = 0
     elif avg_dpu_last_week <= goals.quarterly_dpu_goal:
@@ -618,11 +698,13 @@ def get_oee_summary(db: Session = Depends(get_db)):
     else:
         quality = round(goals.quarterly_dpu_goal / avg_dpu_last_week * 100, 1)
 
-    # Performance
-    performance = round(total_trucks / weekly_target * 100, 1) if weekly_target > 0 else 0
+    # Performance — scale target by working days if short week
+    last_week_indirect = next((r for r in indirect_logs if r.week_start == str(last_week)), None)
+    working_days       = last_week_indirect.working_days if last_week_indirect else 5
+    day_ratio          = working_days / 5
+    adjusted_target    = weekly_target * day_ratio
+    performance        = round(total_trucks / adjusted_target * 100, 1) if adjusted_target > 0 else 0
 
-    # Availability — total labor hours minus indirect labor minus rework
-    last_week_indirect    = next((r for r in indirect_logs if r.week_start == str(last_week)), None)
     last_week_rework = last_week_indirect.rework_hours if last_week_indirect else 0
 
     if last_week_indirect and last_week_indirect.total_labor_hours > 0:
@@ -636,13 +718,11 @@ def get_oee_summary(db: Session = Depends(get_db)):
 
     oee = round(availability / 100 * performance / 100 * quality / 100 * 100, 1)
 
-    # Current quarter
     quarterly_wo      = [wo for wo in work_orders if wo.week_start >= str(quarter_start)]
     quarterly_trucks  = len(quarterly_wo)
     quarterly_defects = sum(wo.total_defects for wo in quarterly_wo)
     quarterly_dpu     = round(quarterly_defects / quarterly_trucks, 2) if quarterly_trucks > 0 else 0
 
-    # Last quarter
     last_quarter_num = quarter - 1
     if last_quarter_num < 0:
         last_quarter_start = date(today.year - 1, 10, 1)
@@ -656,13 +736,11 @@ def get_oee_summary(db: Session = Depends(get_db)):
     last_quarter_defects = sum(wo.total_defects for wo in last_quarter_wo)
     last_quarter_dpu     = round(last_quarter_defects / last_quarter_trucks, 2) if last_quarter_trucks > 0 else 0
 
-    # Current year
     yearly_wo      = [wo for wo in work_orders if wo.week_start >= str(year_start)]
     yearly_trucks  = len(yearly_wo)
     yearly_defects = sum(wo.total_defects for wo in yearly_wo)
     yearly_dpu     = round(yearly_defects / yearly_trucks, 2) if yearly_trucks > 0 else 0
 
-    # Last year
     last_year_start   = date(today.year - 1, 1, 1)
     last_year_end     = date(today.year, 1, 1)
     last_year_wo      = [wo for wo in work_orders if str(last_year_start) <= wo.week_start < str(last_year_end)]
@@ -670,7 +748,6 @@ def get_oee_summary(db: Session = Depends(get_db)):
     last_year_defects = sum(wo.total_defects for wo in last_year_wo)
     last_year_dpu     = round(last_year_defects / last_year_trucks, 2) if last_year_trucks > 0 else 0
 
-    # Goal history lookup
     goal_history_records = db.query(GoalHistory).order_by(GoalHistory.effective_date.asc()).all()
 
     def get_goal_for_date(d):
@@ -685,7 +762,6 @@ def get_oee_summary(db: Session = Depends(get_db)):
     last_quarter_goal = get_goal_for_date(last_quarter_start)
     last_year_goal    = get_goal_for_date(last_year_start)
 
-    # Weekly DPU history
     weekly_data = {}
     for wo in work_orders:
         if wo.week_start not in weekly_data:
@@ -696,19 +772,13 @@ def get_oee_summary(db: Session = Depends(get_db)):
     weeks_sorted     = sorted(weekly_data.items())
     dpu_history_full = []
     for i, (week, v) in enumerate(weeks_sorted):
-        dpu   = round(v["defects"] / v["trucks"], 2) if v["trucks"] > 0 else 0
-        prev  = round(weeks_sorted[i-1][1]["defects"] / weeks_sorted[i-1][1]["trucks"], 2) if i > 0 and weeks_sorted[i-1][1]["trucks"] > 0 else None
+        dpu  = round(v["defects"] / v["trucks"], 2) if v["trucks"] > 0 else 0
+        prev = round(weeks_sorted[i-1][1]["defects"] / weeks_sorted[i-1][1]["trucks"], 2) if i > 0 and weeks_sorted[i-1][1]["trucks"] > 0 else None
         trend = None
         if prev is not None:
             trend = "down" if dpu < prev else "up" if dpu > prev else "same"
-        dpu_history_full.append({
-            "week":   week,
-            "dpu":    dpu,
-            "trucks": v["trucks"],
-            "trend":  trend,
-        })
+        dpu_history_full.append({"week": week, "dpu": dpu, "trucks": v["trucks"], "trend": trend})
 
-    # Best and worst week this quarter
     quarterly_weekly = {}
     for wo in quarterly_wo:
         if wo.week_start not in quarterly_weekly:
@@ -724,7 +794,6 @@ def get_oee_summary(db: Session = Depends(get_db)):
     best_week  = min(quarterly_week_dpus, key=lambda x: x["dpu"]) if quarterly_week_dpus else None
     worst_week = max(quarterly_week_dpus, key=lambda x: x["dpu"]) if quarterly_week_dpus else None
 
-    # Downtime by machine this quarter — kept for reference
     downtime_logs = db.query(DowntimeLog).all()
     downtime_by_machine = {}
     for log in downtime_logs:
@@ -734,34 +803,36 @@ def get_oee_summary(db: Session = Depends(get_db)):
     current_quarter_goal = get_goal_for_date(quarter_start)
 
     return {
-        "oee":                       oee,
-        "availability":              availability,
-        "performance":               performance,
-        "quality":                   quality,
-        "trucks_this_week":          total_trucks,
-        "avg_dpu_this_week":         avg_dpu_last_week,
-        "quarterly_dpu":             quarterly_dpu,
-        "last_quarter_dpu":          last_quarter_dpu,
-        "last_quarter_dpu_goal":     last_quarter_goal.quarterly_dpu_goal,
-        "yearly_dpu":                yearly_dpu,
-        "last_year_dpu":             last_year_dpu,
-        "last_year_dpu_goal":        last_year_goal.annual_dpu_goal,
-        "dpu_history":               dpu_history_full,
-        "downtime_by_machine":       downtime_by_machine,
-        "last_week_rework_hours":    last_week_rework,
-        "last_week_indirect_hours":  last_week_indirect.indirect_hours if last_week_indirect else 0,
-        "last_week_total_hours":     last_week_indirect.total_labor_hours if last_week_indirect else 0,
-        "best_week_quarter":         best_week,
-        "worst_week_quarter":        worst_week,
+        "oee":                      oee,
+        "availability":             availability,
+        "performance":              performance,
+        "quality":                  quality,
+        "trucks_this_week":         total_trucks,
+        "avg_dpu_this_week":        avg_dpu_last_week,
+        "quarterly_dpu":            quarterly_dpu,
+        "last_quarter_dpu":         last_quarter_dpu,
+        "last_quarter_dpu_goal":    last_quarter_goal.quarterly_dpu_goal,
+        "yearly_dpu":               yearly_dpu,
+        "last_year_dpu":            last_year_dpu,
+        "last_year_dpu_goal":       last_year_goal.annual_dpu_goal,
+        "dpu_history":              dpu_history_full,
+        "downtime_by_machine":      downtime_by_machine,
+        "last_week_rework_hours":   last_week_rework,
+        "last_week_indirect_hours": last_week_indirect.indirect_hours if last_week_indirect else 0,
+        "last_week_total_hours":    last_week_indirect.total_labor_hours if last_week_indirect else 0,
+        "last_week_working_days":   working_days,
+        "best_week_quarter":        best_week,
+        "worst_week_quarter":       worst_week,
         "indirect_labor_history": [
-    {
-        "week_start":        r.week_start,
-        "total_labor_hours": r.total_labor_hours,
-        "indirect_hours":    r.indirect_hours,
-        "rework_hours":      r.rework_hours,
-    }
-    for r in indirect_logs
-],
+            {
+                "week_start":        r.week_start,
+                "total_labor_hours": r.total_labor_hours,
+                "indirect_hours":    r.indirect_hours,
+                "rework_hours":      r.rework_hours,
+                "working_days":      r.working_days if r.working_days else 5,
+            }
+            for r in indirect_logs
+        ],
         "goals": {
             "annual_dpu_goal":    current_quarter_goal.annual_dpu_goal,
             "quarterly_dpu_goal": current_quarter_goal.quarterly_dpu_goal,

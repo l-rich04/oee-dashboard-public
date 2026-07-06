@@ -20,10 +20,11 @@ class Issue(Base):
     foreman_name    = Column(String, nullable=False)
     status          = Column(String, default="open")
     resolution_note = Column(Text, nullable=True)
+    solved_by       = Column(String, nullable=True)
     created_at      = Column(DateTime, default=datetime.utcnow)
     updated_at      = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     production_id   = Column(Integer, nullable=True)
-    is_read = Column(Boolean, default=False, nullable=False)
+    is_read         = Column(Boolean, default=False, nullable=False)
 
 
 class IssueUpdate(Base):
@@ -33,7 +34,9 @@ class IssueUpdate(Base):
     issue_id   = Column(Integer, nullable=False)
     update_num = Column(Integer, nullable=False)
     note       = Column(Text, nullable=False)
+    made_by    = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
 
 class WorkOrder(Base):
     __tablename__ = "work_orders"
@@ -58,15 +61,17 @@ class DowntimeLog(Base):
     notes      = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+
 class OEEGoals(Base):
     __tablename__ = "oee_goals"
 
-    id                  = Column(Integer, primary_key=True, index=True)
-    annual_dpu_goal     = Column(Float, default=1.62)
-    quarterly_dpu_goal  = Column(Float, default=3.53)
-    weekly_trucks_min   = Column(Integer, default=14)
-    weekly_trucks_max   = Column(Integer, default=18)
-    updated_at          = Column(DateTime, default=datetime.utcnow)
+    id                 = Column(Integer, primary_key=True, index=True)
+    annual_dpu_goal    = Column(Float, default=1.62)
+    quarterly_dpu_goal = Column(Float, default=3.53)
+    weekly_trucks_min  = Column(Integer, default=14)
+    weekly_trucks_max  = Column(Integer, default=18)
+    updated_at         = Column(DateTime, default=datetime.utcnow)
+
 
 class ReworkHours(Base):
     __tablename__ = "rework_hours"
@@ -78,12 +83,22 @@ class ReworkHours(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+
 class Foreman(Base):
     __tablename__ = "foremen"
 
     id         = Column(Integer, primary_key=True, index=True)
     name       = Column(String, unique=True, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class Supervisor(Base):
+    __tablename__ = "supervisors"
+
+    id         = Column(Integer, primary_key=True, index=True)
+    name       = Column(String, unique=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
 
 class GoalHistory(Base):
     __tablename__ = "goal_history"
@@ -96,17 +111,20 @@ class GoalHistory(Base):
     weekly_trucks_max  = Column(Integer, nullable=False)
     created_at         = Column(DateTime, default=datetime.utcnow)
 
+
 class IndirectLabor(Base):
     __tablename__ = "indirect_labor"
 
     id                = Column(Integer, primary_key=True, index=True)
     week_start        = Column(String, nullable=False, unique=True)
+    working_days      = Column(Integer, nullable=False, default=5)
     total_labor_hours = Column(Float, nullable=False)
     indirect_hours    = Column(Float, nullable=False)
     rework_hours      = Column(Float, nullable=False, default=0)
     notes             = Column(Text, nullable=True)
     created_at        = Column(DateTime, default=datetime.utcnow)
     updated_at        = Column(DateTime, default=datetime.utcnow)
+
 
 def get_db():
     db = SessionLocal()

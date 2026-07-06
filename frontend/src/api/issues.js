@@ -1,4 +1,4 @@
-const BASE = "http://localhost:8000";
+const BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
 export async function submitIssue(data) {
   const res = await fetch(`${BASE}/issues`, {
@@ -205,5 +205,44 @@ export async function saveIndirectLabor(data) {
 
 export async function deleteIndirectLabor(id) {
   const res = await fetch(`${BASE}/indirect-labor/${id}`, { method: "DELETE" });
+  if (!res.ok) throw new Error(await res.text());
+}
+
+export async function editIssueUpdate(issueId, updateId, note) {
+  const res = await fetch(`${BASE}/issues/${issueId}/updates/${updateId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ note }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function deleteIssueUpdate(issueId, updateId) {
+  const res = await fetch(`${BASE}/issues/${issueId}/updates/${updateId}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) throw new Error(await res.text());
+}
+
+
+export async function getSupervisors() {
+  const res = await fetch(`${BASE}/supervisors`);
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function createSupervisor(name) {
+  const res = await fetch(`${BASE}/supervisors`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function deleteSupervisor(id) {
+  const res = await fetch(`${BASE}/supervisors/${id}`, { method: "DELETE" });
   if (!res.ok) throw new Error(await res.text());
 }
