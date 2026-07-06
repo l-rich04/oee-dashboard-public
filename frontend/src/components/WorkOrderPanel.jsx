@@ -412,7 +412,7 @@ export default function WorkOrderPanel({ onSaved }) {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
         <div>
           <h3 style={{ fontSize: 15, fontWeight: 500, margin: "0 0 2px" }}>Work Orders</h3>
-          <p style={{ fontSize: 12, color: "#888", margin: 0 }}>Track weekly work orders and defects. This is how Quality is calculated.</p>
+          <p style={{ fontSize: 12, color: "#888", margin: 0 }}>Track weekly work orders and defects. This is how Quality and Performance are calculated.</p>
         </div>
         <button onClick={openModal} style={{
           padding: "8px 16px", background: "#1D9E75", color: "#fff",

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { getIssues, markIssueRead, addIssueUpdate, updateIssue } from "../api/issues";
+import { getIssues, markIssueRead, addIssueUpdate, updateIssue, getSupervisors } from "../api/issues";
 
 function getLastWeekStart() {
   const d = new Date();
@@ -104,30 +104,35 @@ export default function MorningHuddle({ summary, onClose, onSaved }) {
   const [issues, setIssues]             = useState([]);
   const [issueIdx, setIssueIdx]         = useState(0);
   const [updateText, setUpdateText]     = useState("");
+  const [madeBy, setMadeBy]             = useState("");
+  const [updateMode, setUpdateMode]     = useState("update"); // "update" | "solve"
+  const [solvedBy, setSolvedBy]         = useState("");
+  const [resolution, setResolution]     = useState("");
   const [saving, setSaving]             = useState(false);
   const [savedMsg, setSavedMsg]         = useState(false);
   const [newBizAdded, setNewBizAdded]   = useState({});
+  const [supervisors, setSupervisors]   = useState([]);
 
   useEffect(() => {
-  getIssues({}).then(data => {
-    const active = data.filter(i => i.status !== "solved");
-    const foremenOrder = ["Rick","Todd","Duey","Jordan","Dan","Joel","Willard","Eric","Brian","Ralph","QC","Others"];
-    const sorted = [...active].sort((a, b) => {
-      const aIdx = foremenOrder.indexOf(a.foreman_name);
-      const bIdx = foremenOrder.indexOf(b.foreman_name);
-      if (aIdx === -1 && bIdx === -1) return a.foreman_name.localeCompare(b.foreman_name);
-      if (aIdx === -1) return 1;
-      if (bIdx === -1) return -1;
-      return aIdx - bIdx;
+    getIssues({}).then(data => {
+      const active = data.filter(i => i.status !== "solved");
+      const foremenOrder = ["Rick","Todd","Duey","Jordan","Dan","Joel","Willard","Eric","Brian","Ralph","QC","Others"];
+      const sorted = [...active].sort((a, b) => {
+        const aIdx = foremenOrder.indexOf(a.foreman_name);
+        const bIdx = foremenOrder.indexOf(b.foreman_name);
+        if (aIdx === -1 && bIdx === -1) return a.foreman_name.localeCompare(b.foreman_name);
+        if (aIdx === -1) return 1;
+        if (bIdx === -1) return -1;
+        return aIdx - bIdx;
+      });
+      setIssues(sorted);
     });
-    setIssues(sorted);
-  });
-}, []);
+    getSupervisors().then(data => setSupervisors(data.map(s => s.name)));
+  }, []);
 
   if (!summary) return null;
 
   const { goals } = summary;
-  const lastWeek  = getLastWeekStart();
 
   const oeeColor   = summary.oee >= 85 ? "#1D9E75" : summary.oee >= 60 ? "#E4A317" : "#E24B4A";
   const availColor = summary.availability >= 85 ? "#1D9E75" : "#E4A317";
@@ -145,10 +150,18 @@ export default function MorningHuddle({ summary, onClose, onSaved }) {
   const currentIssue = issues[issueIdx] ?? null;
   const foremenAll   = ["Rick","Todd","Duey","Jordan","Dan","Joel","Willard","Eric","Brian","Ralph","QC","Others"];
 
+  function clearIssueState() {
+    setUpdateText("");
+    setMadeBy("");
+    setSolvedBy("");
+    setResolution("");
+    setUpdateMode("update");
+  }
+
   function nextStep() {
-    if (phase === 1) { setPhase(2); setIssueIdx(0); setUpdateText(""); }
+    if (phase === 1) { setPhase(2); setIssueIdx(0); clearIssueState(); }
     else if (phase === 2) {
-      if (issueIdx < issues.length - 1) { setIssueIdx(i => i + 1); setUpdateText(""); }
+      if (issueIdx < issues.length - 1) { setIssueIdx(i => i + 1); clearIssueState(); }
       else setPhase(3);
     } else {
       onClose();
@@ -157,21 +170,21 @@ export default function MorningHuddle({ summary, onClose, onSaved }) {
   }
 
   function prevStep() {
-    if (phase === 2 && issueIdx > 0) { setIssueIdx(i => i - 1); setUpdateText(""); }
+    if (phase === 2 && issueIdx > 0) { setIssueIdx(i => i - 1); clearIssueState(); }
     else if (phase === 2 && issueIdx === 0) setPhase(1);
     else if (phase === 3) setPhase(2);
-    else if (phase === 1) return;
   }
 
   async function handleSaveUpdate() {
-    if (!updateText.trim() || !currentIssue) return;
+    if (!updateText.trim() || !madeBy || !currentIssue) return;
     setSaving(true);
     try {
-      await addIssueUpdate(currentIssue.id, { note: updateText.trim() });
+      await addIssueUpdate(currentIssue.id, { note: updateText.trim(), made_by: madeBy });
+      await updateIssue(currentIssue.id, { status: "in_progress" });
       if (!currentIssue.is_read) await markIssueRead(currentIssue.id);
       setSavedMsg(true);
       setTimeout(() => setSavedMsg(false), 2000);
-      setUpdateText("");
+      clearIssueState();
       if (onSaved) onSaved();
     } finally {
       setSaving(false);
@@ -179,13 +192,17 @@ export default function MorningHuddle({ summary, onClose, onSaved }) {
   }
 
   async function handleMarkSolved() {
-    if (!currentIssue) return;
+    if (!resolution.trim() || !solvedBy || !currentIssue) return;
     setSaving(true);
     try {
-      await updateIssue(currentIssue.id, { status: "solved", resolution_note: updateText.trim() || "Resolved in morning huddle" });
+      await updateIssue(currentIssue.id, {
+        status:          "solved",
+        resolution_note: resolution.trim(),
+        solved_by:       solvedBy,
+      });
       if (!currentIssue.is_read) await markIssueRead(currentIssue.id);
       setIssues(prev => prev.filter(i => i.id !== currentIssue.id));
-      setUpdateText("");
+      clearIssueState();
       if (onSaved) onSaved();
     } finally {
       setSaving(false);
@@ -238,6 +255,16 @@ export default function MorningHuddle({ summary, onClose, onSaved }) {
       borderRadius: 7, background: bg, color, cursor: "pointer",
       fontFamily: "inherit", fontWeight: 500,
     }),
+    select: {
+      width: "100%", background: "#252a38", border: "0.5px solid #333",
+      borderRadius: 6, color: "#ccc", fontSize: 13, padding: "8px 10px",
+      fontFamily: "inherit", boxSizing: "border-box",
+    },
+    textarea: {
+      width: "100%", background: "#252a38", border: "0.5px solid #333",
+      borderRadius: 6, color: "#ccc", fontSize: 13, padding: "10px 12px",
+      fontFamily: "inherit", resize: "none", boxSizing: "border-box",
+    },
   };
 
   return (
@@ -251,7 +278,7 @@ export default function MorningHuddle({ summary, onClose, onSaved }) {
         </div>
         <div style={{ display: "flex", gap: 6 }}>
           {[1, 2, 3].map(p => (
-            <button key={p} onClick={() => { setPhase(p); if (p === 2) { setIssueIdx(0); setUpdateText(""); } }}
+            <button key={p} onClick={() => { setPhase(p); if (p === 2) { setIssueIdx(0); clearIssueState(); } }}
               style={s.phaseBtn(phase === p)}>
               {p === 1 ? "1 · Numbers" : p === 2 ? "2 · Issues" : "3 · New business"}
             </button>
@@ -295,14 +322,14 @@ export default function MorningHuddle({ summary, onClose, onSaved }) {
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
               <div style={s.card}>
-                <p style={s.label}>Trucks last week</p>
+                <p style={s.label}>Trucks Last Week</p>
                 <p style={s.bigNum(truckColor)}>{summary.trucks_this_week}</p>
                 <p style={s.sub}>Target {goals.weekly_trucks_min}–{goals.weekly_trucks_max}</p>
               </div>
               <div style={s.card}>
-                <p style={s.label}>DPU last week</p>
+                <p style={s.label}>DPU Last Week</p>
                 <p style={s.bigNum(dpuColor)}>{summary.avg_dpu_this_week === 0 ? "—" : summary.avg_dpu_this_week}</p>
-                <p style={s.sub}>Goal: {goals.quarterly_dpu_goal} · Q{Math.floor(new Date().getMonth() / 3) + 1}</p>
+                <p style={s.sub}>Goal / Actual DPU · Q{Math.floor(new Date().getMonth() / 3) + 1}</p>
               </div>
               <div style={s.card}>
                 <p style={s.label}>Rework hours</p>
@@ -330,11 +357,11 @@ export default function MorningHuddle({ summary, onClose, onSaved }) {
                   <p style={{ fontSize: 12, color: "#555", margin: 0 }}>Issue {issueIdx + 1} of {issues.length}</p>
                 </div>
                 <div style={{ display: "flex", gap: 6 }}>
-                  <button onClick={() => { if (issueIdx > 0) { setIssueIdx(i => i - 1); setUpdateText(""); } }}
+                  <button onClick={() => { if (issueIdx > 0) { setIssueIdx(i => i - 1); clearIssueState(); } }}
                     disabled={issueIdx === 0}
                     style={{ ...s.btn("transparent", "#333", "#888"), opacity: issueIdx === 0 ? 0.4 : 1 }}>← Prev</button>
                   <button onClick={() => {
-                    if (issueIdx < issues.length - 1) { setIssueIdx(i => i + 1); setUpdateText(""); }
+                    if (issueIdx < issues.length - 1) { setIssueIdx(i => i + 1); clearIssueState(); }
                     else setPhase(3);
                   }} style={s.btn("transparent", "#1D9E75", "#1D9E75")}>
                     {issueIdx < issues.length - 1 ? "Next issue →" : "Finish issues →"}
@@ -365,35 +392,84 @@ export default function MorningHuddle({ summary, onClose, onSaved }) {
               </div>
 
               <div style={s.card}>
-                <p style={{ fontSize: 10, color: "#555", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
-                  Add update from huddle
-                </p>
-                <textarea
-                  value={updateText}
-                  onChange={e => setUpdateText(e.target.value)}
-                  placeholder="Type update here..."
-                  rows={2}
-                  style={{
-                    width: "100%", background: "#252a38", border: "0.5px solid #333",
-                    borderRadius: 6, color: "#ccc", fontSize: 13, padding: "10px 12px",
-                    fontFamily: "inherit", resize: "none", boxSizing: "border-box",
-                  }}
-                />
-                <div style={{ display: "flex", gap: 8, marginTop: 8, alignItems: "center" }}>
-                  <button onClick={handleSaveUpdate} disabled={!updateText.trim() || saving}
-                    style={{ ...s.btn("#1D9E75", null, "#fff"), opacity: !updateText.trim() ? 0.5 : 1 }}>
-                    {saving ? "Saving…" : "Save update"}
-                  </button>
-                  <button onClick={handleMarkSolved} disabled={saving}
-                    style={s.btn("transparent", "#E24B4A", "#E24B4A")}>
-                    Mark solved
-                  </button>
-                  <button onClick={() => { setUpdateText(""); setIssueIdx(i => Math.min(i + 1, issues.length - 1)); }}
-                    style={s.btn("transparent", "#333", "#666")}>
-                    Skip
-                  </button>
-                  {savedMsg && <span style={{ fontSize: 12, color: "#1D9E75", marginLeft: 4 }}>Saved ✓</span>}
+                {/* Mode toggle */}
+                <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+                  <button onClick={() => setUpdateMode("update")} style={{
+                    flex: 1, padding: "7px 6px", borderRadius: 7, fontSize: 12,
+                    fontWeight: 500, cursor: "pointer", fontFamily: "inherit",
+                    border: `1.5px solid ${updateMode === "update" ? "#1D9E75" : "#333"}`,
+                    background: updateMode === "update" ? "#0a2e22" : "transparent",
+                    color: updateMode === "update" ? "#1D9E75" : "#555",
+                  }}>Add Update</button>
+                  <button onClick={() => setUpdateMode("solve")} style={{
+                    flex: 1, padding: "7px 6px", borderRadius: 7, fontSize: 12,
+                    fontWeight: 500, cursor: "pointer", fontFamily: "inherit",
+                    border: `1.5px solid ${updateMode === "solve" ? "#E24B4A" : "#333"}`,
+                    background: updateMode === "solve" ? "#2e0a0a" : "transparent",
+                    color: updateMode === "solve" ? "#E24B4A" : "#555",
+                  }}>Mark Solved</button>
                 </div>
+
+                {updateMode === "update" && (
+                  <>
+                    <p style={{ fontSize: 10, color: "#555", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                      Add update from huddle
+                    </p>
+                    <select value={madeBy} onChange={e => setMadeBy(e.target.value)}
+                      style={{ ...s.select, marginBottom: 8 }}>
+                      <option value="">Who is making this update?</option>
+                      {supervisors.map(n => <option key={n} value={n}>{n}</option>)}
+                    </select>
+                    <textarea
+                      value={updateText}
+                      onChange={e => setUpdateText(e.target.value)}
+                      placeholder="Type update here..."
+                      rows={2}
+                      style={s.textarea}
+                    />
+                    <div style={{ display: "flex", gap: 8, marginTop: 8, alignItems: "center" }}>
+                      <button onClick={handleSaveUpdate} disabled={!updateText.trim() || !madeBy || saving}
+                        style={{ ...s.btn("#1D9E75", null, "#fff"), opacity: !updateText.trim() || !madeBy ? 0.5 : 1 }}>
+                        {saving ? "Saving…" : "Save update"}
+                      </button>
+                      <button onClick={() => { clearIssueState(); setIssueIdx(i => Math.min(i + 1, issues.length - 1)); }}
+                        style={s.btn("transparent", "#333", "#666")}>
+                        Skip
+                      </button>
+                      {savedMsg && <span style={{ fontSize: 12, color: "#1D9E75", marginLeft: 4 }}>Saved ✓</span>}
+                    </div>
+                  </>
+                )}
+
+                {updateMode === "solve" && (
+                  <>
+                    <p style={{ fontSize: 10, color: "#555", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                      Mark as solved
+                    </p>
+                    <select value={solvedBy} onChange={e => setSolvedBy(e.target.value)}
+                      style={{ ...s.select, marginBottom: 8 }}>
+                      <option value="">Who solved this issue?</option>
+                      {supervisors.map(n => <option key={n} value={n}>{n}</option>)}
+                    </select>
+                    <textarea
+                      value={resolution}
+                      onChange={e => setResolution(e.target.value)}
+                      placeholder="Describe how this was resolved…"
+                      rows={2}
+                      style={s.textarea}
+                    />
+                    <div style={{ display: "flex", gap: 8, marginTop: 8, alignItems: "center" }}>
+                      <button onClick={handleMarkSolved} disabled={!resolution.trim() || !solvedBy || saving}
+                        style={{ ...s.btn("#E24B4A", null, "#fff"), opacity: !resolution.trim() || !solvedBy ? 0.5 : 1 }}>
+                        {saving ? "Saving…" : "Mark solved"}
+                      </button>
+                      <button onClick={() => { clearIssueState(); setIssueIdx(i => Math.min(i + 1, issues.length - 1)); }}
+                        style={s.btn("transparent", "#333", "#666")}>
+                        Skip
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             </>
           )
@@ -405,36 +481,35 @@ export default function MorningHuddle({ summary, onClose, onSaved }) {
             <p style={{ fontSize: 16, color: "#555", margin: "0 0 20px" }}>Does anyone have anything new to add?</p>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
               {foremenAll.map(f => (
-  <div key={f} style={{ ...s.card }}>
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: newBizAdded[f] === "open" ? 10 : 0 }}>
-      <span style={{ fontSize: 15, color: "#ccc" }}>{f}</span>
-      <button
-        onClick={() => setNewBizAdded(prev => ({ ...prev, [f]: prev[f] === "open" ? null : "open" }))}
-        style={{
-          padding: "4px 12px", fontSize: 11, borderRadius: 6,
-          border: `1px solid ${newBizAdded[f] === "saved" ? "#1D9E75" : newBizAdded[f] === "open" ? "#378ADD" : "#333"}`,
-          background: "transparent",
-          color: newBizAdded[f] === "saved" ? "#1D9E75" : newBizAdded[f] === "open" ? "#378ADD" : "#555",
-          cursor: "pointer", fontFamily: "inherit",
-        }}>
-        {newBizAdded[f] === "saved" ? "✓ Added" : newBizAdded[f] === "open" ? "Cancel" : "+ Add"}
-      </button>
-    </div>
-
-    {newBizAdded[f] === "open" && (
-      <NewBizEntry
-        foremanName={f}
-        onSaved={() => {
-          setNewBizAdded(prev => ({ ...prev, [f]: "saved" }));
-          if (onSaved) onSaved();
-        }}
-      />
-    )}
-    {newBizAdded[f] === "saved" && (
-      <p style={{ fontSize: 12, color: "#1D9E75", margin: "8px 0 0" }}>Issue added to dashboard</p>
-    )}
-  </div>
-))}
+                <div key={f} style={{ ...s.card }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: newBizAdded[f] === "open" ? 10 : 0 }}>
+                    <span style={{ fontSize: 15, color: "#ccc" }}>{f}</span>
+                    <button
+                      onClick={() => setNewBizAdded(prev => ({ ...prev, [f]: prev[f] === "open" ? null : "open" }))}
+                      style={{
+                        padding: "4px 12px", fontSize: 11, borderRadius: 6,
+                        border: `1px solid ${newBizAdded[f] === "saved" ? "#1D9E75" : newBizAdded[f] === "open" ? "#378ADD" : "#333"}`,
+                        background: "transparent",
+                        color: newBizAdded[f] === "saved" ? "#1D9E75" : newBizAdded[f] === "open" ? "#378ADD" : "#555",
+                        cursor: "pointer", fontFamily: "inherit",
+                      }}>
+                      {newBizAdded[f] === "saved" ? "✓ Added" : newBizAdded[f] === "open" ? "Cancel" : "+ Add"}
+                    </button>
+                  </div>
+                  {newBizAdded[f] === "open" && (
+                    <NewBizEntry
+                      foremanName={f}
+                      onSaved={() => {
+                        setNewBizAdded(prev => ({ ...prev, [f]: "saved" }));
+                        if (onSaved) onSaved();
+                      }}
+                    />
+                  )}
+                  {newBizAdded[f] === "saved" && (
+                    <p style={{ fontSize: 12, color: "#1D9E75", margin: "8px 0 0" }}>Issue added to dashboard</p>
+                  )}
+                </div>
+              ))}
             </div>
           </>
         )}

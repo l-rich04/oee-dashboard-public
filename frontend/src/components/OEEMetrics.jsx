@@ -41,14 +41,9 @@ export default function OEEMetrics({ summary }) {
   const allHistory      = summary.dpu_history ?? [];
   const indirectHistory = summary.indirect_labor_history ?? [];
 
-  // Derive last history values BEFORE any useState calls
   const lastHistoryEntry   = allHistory[allHistory.length - 1];
-  const lastHistoryYear    = lastHistoryEntry
-    ? new Date(lastHistoryEntry.week).getFullYear()
-    : currentYear;
-  const lastHistoryQuarter = lastHistoryEntry
-    ? Math.floor(new Date(lastHistoryEntry.week).getMonth() / 3)
-    : currentQuarter;
+  const lastHistoryYear    = lastHistoryEntry ? new Date(lastHistoryEntry.week).getFullYear() : currentYear;
+  const lastHistoryQuarter = lastHistoryEntry ? Math.floor(new Date(lastHistoryEntry.week).getMonth() / 3) : currentQuarter;
 
   const [goalHistory, setGoalHistory] = useState([]);
 
@@ -58,17 +53,13 @@ export default function OEEMetrics({ summary }) {
       .catch(err => console.error("goal history error:", err));
   }, []);
 
-  // Card period state
   const [period, setPeriod]     = useState("week");
   const [cardYear, setCardYear] = useState(lastHistoryYear);
   const [cardSub, setCardSub]   = useState(lastHistoryQuarter);
 
-  // Chart period state
   const [dpuFilter, setDpuFilter]       = useState("quarter");
   const [selectedYear, setSelectedYear] = useState(lastHistoryYear);
   const [selectedSub, setSelectedSub]   = useState(lastHistoryQuarter);
-
-  // --- Available periods ---
 
   const availableYears = useMemo(() => {
     const years = new Set(allHistory.map(w => new Date(w.week).getFullYear()));
@@ -103,8 +94,6 @@ export default function OEEMetrics({ summary }) {
     return [...ms].sort((a, b) => a - b);
   }, [allHistory, selectedYear]);
 
-  // --- Year change handlers ---
-
   function onCardYearChange(year) {
     setCardYear(year);
     if (period === "quarter") {
@@ -135,8 +124,6 @@ export default function OEEMetrics({ summary }) {
     }
   }
 
-  // --- Filtered chart history ---
-
   const filteredHistory = useMemo(() => {
     return allHistory.filter(w => {
       const d = new Date(w.week);
@@ -157,11 +144,8 @@ export default function OEEMetrics({ summary }) {
     return `${selectedYear}`;
   }
 
-  // --- Goal lookups ---
-
   const chartGoal = useMemo(() => {
     const sorted = [...goalHistory].sort((a, b) => a.effective_date.localeCompare(b.effective_date));
-
     function lookup(dateStr) {
       if (!sorted.length) return goals;
       let active = sorted[0];
@@ -171,10 +155,7 @@ export default function OEEMetrics({ summary }) {
       }
       return active;
     }
-
-    if (dpuFilter === "ytd") {
-      return sorted.length ? sorted[sorted.length - 1] : goals;
-    }
+    if (dpuFilter === "ytd") return sorted.length ? sorted[sorted.length - 1] : goals;
     const midWeek = filteredHistory[Math.floor(filteredHistory.length / 2)]?.week;
     if (!midWeek) return goals;
     return lookup(midWeek);
@@ -182,7 +163,6 @@ export default function OEEMetrics({ summary }) {
 
   const periodGoal = useMemo(() => {
     const sorted = [...goalHistory].sort((a, b) => a.effective_date.localeCompare(b.effective_date));
-
     function lookup(dateStr) {
       if (!sorted.length) return goals;
       let active = sorted[0];
@@ -192,7 +172,6 @@ export default function OEEMetrics({ summary }) {
       }
       return active;
     }
-
     let targetDate;
     if (period === "week") {
       targetDate = getLastWeekStart();
@@ -206,8 +185,6 @@ export default function OEEMetrics({ summary }) {
     }
     return lookup(targetDate);
   }, [goalHistory, period, cardYear, cardSub, goals]);
-
-  // --- Period card data ---
 
   const periodData = useMemo(() => {
     if (period === "week") {
@@ -240,14 +217,6 @@ export default function OEEMetrics({ summary }) {
       return false;
     });
 
-    const periodWeeks  = filterWeeks(allHistory);
-    const totalTrucks  = periodWeeks.reduce((s, w) => s + w.trucks, 0);
-    const totalDefects = periodWeeks.reduce((s, w) => s + w.dpu * w.trucks, 0);
-    const avgDpu       = totalTrucks > 0 ? Math.round((totalDefects / totalTrucks) * 100) / 100 : 0;
-    const avgTrucks    = periodWeeks.length > 0 ? Math.round((totalTrucks / periodWeeks.length) * 10) / 10 : 0;
-    const weeklyTarget = (goals.weekly_trucks_min + goals.weekly_trucks_max) / 2;
-    const avgPerf      = weeklyTarget > 0 ? Math.round(avgTrucks / weeklyTarget * 100 * 10) / 10 : 0;
-
     const filterIndirect = (logs) => logs.filter(r => {
       const d = new Date(r.week_start);
       const yr = d.getFullYear();
@@ -258,7 +227,26 @@ export default function OEEMetrics({ summary }) {
       return false;
     });
 
+    const periodWeeks    = filterWeeks(allHistory);
     const periodIndirect = filterIndirect(indirectHistory);
+
+    const totalTrucks  = periodWeeks.reduce((s, w) => s + w.trucks, 0);
+    const totalDefects = periodWeeks.reduce((s, w) => s + w.dpu * w.trucks, 0);
+    const avgDpu       = totalTrucks > 0 ? Math.round((totalDefects / totalTrucks) * 100) / 100 : 0;
+    const avgTrucks    = periodWeeks.length > 0 ? Math.round((totalTrucks / periodWeeks.length) * 10) / 10 : 0;
+    const weeklyTarget = (goals.weekly_trucks_min + goals.weekly_trucks_max) / 2;
+
+    // Performance per week adjusted for working days then averaged
+    const perfByWeek = periodWeeks.map(w => {
+      const laborEntry = periodIndirect.find(r => r.week_start === w.week);
+      const days       = laborEntry?.working_days ?? 5;
+      const adjusted   = weeklyTarget * (days / 5);
+      return adjusted > 0 ? (w.trucks / adjusted) * 100 : 0;
+    });
+    const avgPerf = perfByWeek.length > 0
+      ? Math.round((perfByWeek.reduce((a, b) => a + b, 0) / perfByWeek.length) * 10) / 10
+      : 0;
+
     const avgAvail = periodIndirect.length > 0
       ? Math.round(
           periodIndirect.reduce((s, r) => {
@@ -299,8 +287,6 @@ export default function OEEMetrics({ summary }) {
     };
   }, [period, summary, allHistory, indirectHistory, goals, cardYear, cardSub, periodGoal]);
 
-  // --- Colors ---
-
   const oeeColor    = periodData.oee >= 85 ? "#1D9E75" : periodData.oee >= 60 ? "#854F0B" : "#A32D2D";
   const availColor  = periodData.availability >= 85 ? "#1D9E75" : "#854F0B";
   const perfColor   = periodData.performance >= 85 ? "#1D9E75" : "#854F0B";
@@ -324,7 +310,6 @@ export default function OEEMetrics({ summary }) {
   return (
     <div>
 
-      {/* Period selector */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
         <p style={{ fontSize: 13, fontWeight: 500, color: "#555", margin: 0 }}>OEE Overview</p>
         <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
@@ -369,7 +354,6 @@ export default function OEEMetrics({ summary }) {
       </div>
       <p style={{ fontSize: 11, color: "#aaa", margin: "0 0 14px" }}>{periodData.label}</p>
 
-      {/* Row 1 */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 10 }}>
         <MetricCard label="Overall OEE"  value={`${periodData.oee}%`}          sub={period === "week" ? "Last Week" : "Period AVG"} color={oeeColor} />
         <MetricCard label="Availability" value={`${periodData.availability}%`} sub="Downtime / Total Labor Hours"                   color={availColor} />
@@ -377,7 +361,6 @@ export default function OEEMetrics({ summary }) {
         <MetricCard label="Quality"      value={`${periodData.quality}%`}      sub="Goal / Actual DPU"                              color={qualColor} />
       </div>
 
-      {/* Row 2 */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 24 }}>
 
         <div style={{ background: "#fafafa", borderRadius: 8, padding: "14px 16px", border: "0.5px solid #eee" }}>
@@ -436,7 +419,6 @@ export default function OEEMetrics({ summary }) {
 
       </div>
 
-      {/* DPU Chart */}
       <div style={{ background: "#fff", border: "0.5px solid #eee", borderRadius: 12, padding: 20 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
           <p style={{ fontSize: 13, fontWeight: 500, color: "#555", margin: 0 }}>Weekly DPU Trend</p>

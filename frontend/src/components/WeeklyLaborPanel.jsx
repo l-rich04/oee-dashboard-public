@@ -124,7 +124,7 @@ export default function WeeklyLaborPanel({ onSaved }) {
     <div style={{ marginBottom: 24 }}>
       <h3 style={{ fontSize: 15, fontWeight: 500, margin: "0 0 6px" }}>Weekly Labor Hours</h3>
       <p style={{ fontSize: 12, color: "#888", margin: "0 0 16px" }}>
-        Log Total, Indirect, and Rework Hours Each Week. Set working days to less than 5 for short weeks — performance target adjusts automatically.
+        Log Total, Indirect, and Rework Hours Each Week. Set working days to less than 5 for short weeks. This is how Availability and Rework Percentage are calculated.
       </p>
 
       <div style={{
