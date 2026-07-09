@@ -1,6 +1,6 @@
 import { Helmet } from "react-helmet-async";
-import { useEffect, useState } from "react";
-import { getIssues, getSummary, deleteIssue, getOEESummary, getForemen, markIssueRead } from "../api/issues";
+import { useEffect, useState, useRef } from "react";
+import { getIssues, getSummary, deleteIssue, getOEESummary, getForemen, markIssueRead, exportAll } from "../api/issues";
 import IssueStatusBadge from "../components/IssueStatusBadge";
 import IssueUpdatePanel from "../components/IssueUpdatePanel";
 import IssueEditPanel from "../components/IssueEditPanel";
@@ -46,9 +46,37 @@ export default function SupervisorDashboard() {
   const [showSolved, setShowSolved]           = useState(false);
   const [huddleOpen, setHuddleOpen]           = useState(false);
   const [loading, setLoading]                 = useState(true);
+  const [notifPermission, setNotifPermission] = useState(Notification.permission);
+  const [exporting, setExporting]             = useState(false);
+
+  const knownIssueIds = useRef(null);
+
+  useEffect(() => {
+    if (!authed) return;
+    if (Notification.permission === "default") {
+      Notification.requestPermission().then(perm => {
+        setNotifPermission(perm);
+      });
+    }
+  }, [authed]);
 
   async function load() {
     const [data, sum] = await Promise.all([getIssues({}), getSummary(period)]);
+
+    if (knownIssueIds.current !== null && Notification.permission === "granted") {
+      const newIssues = data.filter(i => !knownIssueIds.current.has(i.id));
+      newIssues.forEach(issue => {
+        const notif = new Notification("New Issue Submitted", {
+          body: `${issue.foreman_name} — ${titleCase(issue.category)}: ${issue.description}`,
+          icon: "/favicon.svg",
+          badge: "/favicon.svg",
+          tag: `issue-${issue.id}`,
+        });
+        notif.onclick = () => { window.focus(); notif.close(); };
+      });
+    }
+
+    knownIssueIds.current = new Set(data.map(i => i.id));
     setIssues(data);
     setSummary(sum);
     setCheckedIds(new Set());
@@ -74,11 +102,7 @@ export default function SupervisorDashboard() {
   }
 
   useEffect(() => {
-    if (authed) {
-      load();
-      loadOEE();
-      loadForemen();
-    }
+    if (authed) { load(); loadOEE(); loadForemen(); }
   }, [authed, period]);
 
   useEffect(() => {
@@ -86,6 +110,95 @@ export default function SupervisorDashboard() {
     const interval = setInterval(() => { load(); }, 30000);
     return () => clearInterval(interval);
   }, [authed]);
+
+  async function handleExport(mode) {
+    setExporting(true);
+    try {
+      const data = await exportAll();
+      const XLSX = await import("https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs");
+      const wb   = XLSX.utils.book_new();
+
+      if (mode === "issues") {
+        // Issues sheet
+        const issueRows = data.issues.map(i => ({
+          "ID":              i.id,
+          "Type":            i.issue_type === "part" ? "Part Issue" : "Process Issue",
+          "Category":        i.category,
+          "Description":     i.description,
+          "Foreman":         i.foreman_name,
+          "Status":          i.status.replace("_", " ").replace(/\b\w/g, c => c.toUpperCase()),
+          "Resolution Note": i.resolution_note ?? "",
+          "Solved By":       i.solved_by ?? "",
+          "Created":         i.created_at,
+          "Updated":         i.updated_at,
+        }));
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(issueRows), "Issues");
+
+        // Issue Updates sheet
+        const updateRows = data.issue_updates.map(u => ({
+          "Issue ID":   u.issue_id,
+          "Update #":   u.update_num,
+          "Note":       u.note,
+          "Made By":    u.made_by ?? "",
+          "Created At": u.created_at,
+        }));
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(updateRows), "Issue Updates");
+      }
+
+      if (mode === "oee") {
+        // Work Orders sheet
+        const woRows = data.work_orders.map(wo => ({
+          "Work Order #":    wo.work_order_num,
+          "Truck Type":      wo.truck_type,
+          "Units Completed": wo.units_completed,
+          "Total Defects":   wo.total_defects,
+          "DPU":             wo.units_completed > 0 ? (wo.total_defects / wo.units_completed).toFixed(2) : 0,
+          "Week Start":      wo.week_start,
+          "Created At":      wo.created_at,
+        }));
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(woRows), "Work Orders");
+
+        // Labor Hours sheet
+        const laborRows = data.labor_hours.map(r => ({
+          "Week Start":        r.week_start,
+          "Working Days":      r.working_days,
+          "Total Labor Hours": r.total_labor_hours,
+          "Indirect Hours":    r.indirect_hours,
+          "Rework Hours":      r.rework_hours,
+          "Availability %":    r.total_labor_hours > 0
+            ? (((r.total_labor_hours - r.indirect_hours - r.rework_hours) / r.total_labor_hours) * 100).toFixed(1)
+            : 0,
+          "Notes": r.notes ?? "",
+        }));
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(laborRows), "Labor Hours");
+
+        // Goal History sheet
+        const goalRows = data.goal_history.map(g => ({
+          "Effective Date":     g.effective_date,
+          "Annual DPU Goal":    g.annual_dpu_goal,
+          "Quarterly DPU Goal": g.quarterly_dpu_goal,
+          "Weekly Trucks Min":  g.weekly_trucks_min,
+          "Weekly Trucks Max":  g.weekly_trucks_max,
+        }));
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(goalRows), "Goal History");
+
+        // Foremen sheet
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.foremen), "Foremen");
+
+        // Supervisors sheet
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.supervisors), "Supervisors");
+      }
+
+      const date     = new Date().toISOString().split("T")[0];
+      const filename = mode === "issues" ? `OEE_Issues_${date}.xlsx` : `OEE_Production_${date}.xlsx`;
+      XLSX.writeFile(wb, filename);
+    } catch (err) {
+      console.error("Export failed:", err);
+      alert("Export failed. Please try again.");
+    } finally {
+      setExporting(false);
+    }
+  }
 
   const activeIssues = issues.filter(i => i.status !== "solved");
   const solvedIssues = issues.filter(i => i.status === "solved");
@@ -96,7 +209,6 @@ export default function SupervisorDashboard() {
     canvas.width  = 32;
     canvas.height = 32;
     const ctx     = canvas.getContext("2d");
-
     const svgData = `<svg width="32" height="32" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
       <rect width="32" height="32" rx="6" fill="#1D9E75"/>
       <rect x="4" y="20" width="4" height="8" rx="1" fill="white" opacity="0.9"/>
@@ -105,7 +217,6 @@ export default function SupervisorDashboard() {
       <rect x="22" y="16" width="4" height="12" rx="1" fill="white" opacity="0.9"/>
       <polyline points="6,18 12,12 18,7 24,14" fill="none" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.6"/>
     </svg>`;
-
     const blob = new Blob([svgData], { type: "image/svg+xml" });
     const url  = URL.createObjectURL(blob);
     const img  = new Image();
@@ -125,11 +236,7 @@ export default function SupervisorDashboard() {
         ctx.fillText(unreadCount > 9 ? "9+" : String(unreadCount), 22, 10);
       }
       let link = document.querySelector("link[rel~='icon']");
-      if (!link) {
-        link     = document.createElement("link");
-        link.rel = "icon";
-        document.head.appendChild(link);
-      }
+      if (!link) { link = document.createElement("link"); link.rel = "icon"; document.head.appendChild(link); }
       link.type = "image/png";
       link.href = canvas.toDataURL("image/png");
     };
@@ -204,10 +311,31 @@ export default function SupervisorDashboard() {
           <p style={{ fontSize: 14, color: "#aaa", marginTop: 80, textAlign: "center" }}>Loading dashboard...</p>
         ) : (
           <>
-            <h1 style={{ fontSize: 22, fontWeight: 500, marginBottom: 4 }}>
-              Supervisor Dashboard
-            </h1>
-            <p style={{ fontSize: 13, color: "#888", marginBottom: 20, marginTop: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+              <h1 style={{ fontSize: 22, fontWeight: 500, margin: 0 }}>Supervisor Dashboard</h1>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                {notifPermission === "denied" && (
+                  <span style={{ fontSize: 11, color: "#A32D2D", background: "#FCEBEB", padding: "3px 10px", borderRadius: 8 }}>
+                    Notifications blocked — enable in browser settings
+                  </span>
+                )}
+                {notifPermission === "default" && (
+                  <button onClick={() => Notification.requestPermission().then(p => setNotifPermission(p))} style={{
+                    fontSize: 11, color: "#854F0B", background: "#FAEEDA",
+                    border: "1px solid #EF9F27", padding: "4px 12px",
+                    borderRadius: 8, cursor: "pointer", fontFamily: "inherit",
+                  }}>
+                    Enable notifications
+                  </button>
+                )}
+                {notifPermission === "granted" && (
+                  <span style={{ fontSize: 11, color: "#0F6E56", background: "#E1F5EE", padding: "3px 10px", borderRadius: 8 }}>
+                    Notifications on
+                  </span>
+                )}
+              </div>
+            </div>
+            <p style={{ fontSize: 13, color: "#888", marginBottom: 20, marginTop: 4 }}>
               Overall Equipment Effectiveness and Production Metrics
             </p>
 
@@ -228,8 +356,7 @@ export default function SupervisorDashboard() {
                     <span style={{
                       background: "#E24B4A", color: "#fff",
                       fontSize: 10, fontWeight: 700,
-                      padding: "1px 6px", borderRadius: 10,
-                      lineHeight: "16px",
+                      padding: "1px 6px", borderRadius: 10, lineHeight: "16px",
                     }}>
                       {unreadCount}
                     </span>
@@ -241,17 +368,24 @@ export default function SupervisorDashboard() {
             {/* ISSUES TAB */}
             {activeTab === "issues" && (
               <>
-                <IssuesSummary
-                  issues={issues}
-                  period={period}
-                  onPeriodChange={(p) => setPeriod(p)}
-                />
+                <IssuesSummary issues={issues} period={period} onPeriodChange={(p) => setPeriod(p)} />
 
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
                   <h2 style={{ fontSize: 16, fontWeight: 500, margin: 0 }}>All Issues</h2>
                   <div style={{ display: "flex", gap: 8 }}>
                     <ForemanManagePanel onChanged={loadForemen} />
                     <SupervisorManagePanel onChanged={() => {}} />
+                    <button
+                      onClick={() => handleExport("issues")}
+                      disabled={exporting}
+                      style={{
+                        padding: "8px 16px", background: "#fff", color: "#555",
+                        border: "1px solid #ddd", borderRadius: 8, fontSize: 13,
+                        fontWeight: 500, cursor: exporting ? "not-allowed" : "pointer",
+                        fontFamily: "inherit",
+                      }}>
+                      {exporting ? "Exporting…" : "↓ Export Issues"}
+                    </button>
                     <button
                       onClick={() => {
                         setMassAdding(prev => !prev);
@@ -270,34 +404,17 @@ export default function SupervisorDashboard() {
                 </div>
 
                 {massAdding && (
-                  <MassAddPanel
-                    onClose={() => setMassAdding(false)}
-                    onSaved={() => { setMassAdding(false); load(); }}
-                  />
+                  <MassAddPanel onClose={() => setMassAdding(false)} onSaved={() => { setMassAdding(false); load(); }} />
                 )}
-
                 {updating && (
-                  <IssueUpdatePanel
-                    issue={updating}
-                    onClose={() => setUpdating(null)}
-                    onSaved={load}
-                  />
+                  <IssueUpdatePanel issue={updating} onClose={() => setUpdating(null)} onSaved={load} />
                 )}
-
                 {editing && (
-                  <IssueEditPanel
-                    issue={editing}
-                    onClose={() => setEditing(null)}
-                    onSaved={load}
-                  />
+                  <IssueEditPanel issue={editing} onClose={() => setEditing(null)} onSaved={load} />
                 )}
 
                 {toDelete && (
-                  <div style={{
-                    marginTop: 16, padding: 20,
-                    border: "1px solid #E24B4A", borderRadius: 12, background: "#fff",
-                    marginBottom: 16,
-                  }}>
+                  <div style={{ marginTop: 16, padding: 20, border: "1px solid #E24B4A", borderRadius: 12, background: "#fff", marginBottom: 16 }}>
                     <p style={{ margin: "0 0 6px", fontSize: 14, fontWeight: 500, color: "#A32D2D" }}>
                       Delete {toDelete.length} Issue{toDelete.length > 1 ? "s" : ""}?
                     </p>
@@ -319,24 +436,17 @@ export default function SupervisorDashboard() {
                         padding: "8px 20px", background: "#E24B4A", color: "#fff",
                         border: "none", borderRadius: 8, cursor: "pointer",
                         fontSize: 13, fontWeight: 500, fontFamily: "inherit",
-                      }}>
-                        Yes, Delete
-                      </button>
+                      }}>Yes, Delete</button>
                       <button onClick={() => setToDelete(null)} style={{
                         padding: "8px 16px", background: "#fff", border: "1px solid #ddd",
                         borderRadius: 8, cursor: "pointer", fontSize: 13, fontFamily: "inherit",
-                      }}>
-                        Cancel
-                      </button>
+                      }}>Cancel</button>
                     </div>
                   </div>
                 )}
 
                 {deleteMsg && (
-                  <div style={{
-                    padding: "12px 16px", background: "#E1F5EE", borderRadius: 8,
-                    fontSize: 13, color: "#0F6E56", marginBottom: 12,
-                  }}>
+                  <div style={{ padding: "12px 16px", background: "#E1F5EE", borderRadius: 8, fontSize: 13, color: "#0F6E56", marginBottom: 12 }}>
                     Issues deleted successfully.
                   </div>
                 )}
@@ -367,7 +477,6 @@ export default function SupervisorDashboard() {
                 {sortedForemen.map(foremanName => {
                   const foremanIssues = grouped[foremanName];
                   if (foremanIssues.length === 0) return null;
-
                   const isOpen   = expandedForemen[foremanName];
                   const newCount = foremanIssues.filter(i => !i.is_read).length;
                   const counts   = foremanIssues.reduce((acc, i) => {
@@ -390,11 +499,7 @@ export default function SupervisorDashboard() {
                           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                             <span style={{ fontSize: 13, fontWeight: 500, color: "#333" }}>{foremanName}</span>
                             {newCount > 0 && (
-                              <span style={{
-                                background: "#E24B4A", color: "#fff",
-                                fontSize: 9, fontWeight: 700,
-                                padding: "1px 5px", borderRadius: 8,
-                              }}>
+                              <span style={{ background: "#E24B4A", color: "#fff", fontSize: 9, fontWeight: 700, padding: "1px 5px", borderRadius: 8 }}>
                                 {newCount} new
                               </span>
                             )}
@@ -444,13 +549,7 @@ export default function SupervisorDashboard() {
                                   <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                                     #{issue.id}
                                     {!issue.is_read && (
-                                      <span style={{
-                                        background: "#E24B4A", color: "#fff",
-                                        fontSize: 9, fontWeight: 700,
-                                        padding: "1px 5px", borderRadius: 8,
-                                      }}>
-                                        NEW
-                                      </span>
+                                      <span style={{ background: "#E24B4A", color: "#fff", fontSize: 9, fontWeight: 700, padding: "1px 5px", borderRadius: 8 }}>NEW</span>
                                     )}
                                   </div>
                                 </td>
@@ -460,19 +559,15 @@ export default function SupervisorDashboard() {
                                 <td style={tdStyle}><IssueStatusBadge status={issue.status} /></td>
                                 <td style={tdStyle}>
                                   <span style={{
-                                    background: daysOld(issue.created_at) === "Today" ? "#E1F5EE" :
-                                      parseInt(daysOld(issue.created_at)) > 7 ? "#FCEBEB" : "#FAEEDA",
-                                    color: daysOld(issue.created_at) === "Today" ? "#0F6E56" :
-                                      parseInt(daysOld(issue.created_at)) > 7 ? "#A32D2D" : "#854F0B",
+                                    background: daysOld(issue.created_at) === "Today" ? "#E1F5EE" : parseInt(daysOld(issue.created_at)) > 7 ? "#FCEBEB" : "#FAEEDA",
+                                    color: daysOld(issue.created_at) === "Today" ? "#0F6E56" : parseInt(daysOld(issue.created_at)) > 7 ? "#A32D2D" : "#854F0B",
                                     padding: "3px 10px", borderRadius: 12, fontSize: 11, fontWeight: 500,
                                   }}>
                                     {daysOld(issue.created_at)}
                                   </span>
                                 </td>
                                 <td style={tdStyle}>{new Date(issue.created_at + "Z").toLocaleDateString()}</td>
-                                <td style={{ ...tdStyle, fontSize: 12, color: "#888" }}>
-                                  {issue.update_count ?? 0}
-                                </td>
+                                <td style={{ ...tdStyle, fontSize: 12, color: "#888" }}>{issue.update_count ?? 0}</td>
                                 <td style={tdStyle}>
                                   <div style={{ display: "flex", gap: 5, alignItems: "center", flexWrap: "wrap" }}>
                                     {!issue.is_read && (
@@ -480,9 +575,7 @@ export default function SupervisorDashboard() {
                                         padding: "3px 8px", fontSize: 11,
                                         border: "1px solid #D4A017", background: "#FAEEDA",
                                         color: "#854F0B", borderRadius: 6, cursor: "pointer", fontWeight: 600,
-                                      }}>
-                                        Mark Read
-                                      </button>
+                                      }}>Mark Read</button>
                                     )}
                                     <button onClick={async () => {
                                       setUpdating(issue); setEditing(null); setToDelete(null); setMassAdding(false);
@@ -513,16 +606,14 @@ export default function SupervisorDashboard() {
 
                 {/* SOLVED / ARCHIVED SECTION */}
                 <div style={{ marginTop: 24 }}>
-                  <button
-                    onClick={() => setShowSolved(prev => !prev)}
-                    style={{
-                      display: "flex", alignItems: "center", gap: 8,
-                      padding: "10px 16px", background: "#fafafa",
-                      border: "0.5px solid #eee", borderRadius: 8,
-                      fontSize: 13, fontWeight: 500, color: "#555",
-                      cursor: "pointer", fontFamily: "inherit",
-                      marginBottom: showSolved ? 16 : 0,
-                    }}>
+                  <button onClick={() => setShowSolved(prev => !prev)} style={{
+                    display: "flex", alignItems: "center", gap: 8,
+                    padding: "10px 16px", background: "#fafafa",
+                    border: "0.5px solid #eee", borderRadius: 8,
+                    fontSize: 13, fontWeight: 500, color: "#555",
+                    cursor: "pointer", fontFamily: "inherit",
+                    marginBottom: showSolved ? 16 : 0,
+                  }}>
                     {showSolved ? "▲" : "▼"} View Solved
                     <span style={{ fontSize: 11, color: "#aaa", fontWeight: 400 }}>
                       ({solvedIssues.length} issue{solvedIssues.length !== 1 ? "s" : ""})
@@ -537,7 +628,6 @@ export default function SupervisorDashboard() {
                       {sortedSolvedForemen.map(foremanName => {
                         const foremanSolved = solvedGrouped[foremanName];
                         const isOpen        = expandedForemen[foremanName + "_solved"];
-
                         return (
                           <div key={foremanName} style={{ border: "0.5px solid #eee", borderRadius: 10, marginBottom: 8, overflow: "hidden" }}>
                             <div style={{
@@ -565,7 +655,6 @@ export default function SupervisorDashboard() {
                                 </span>
                               </div>
                             </div>
-
                             {isOpen && (
                               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                                 <thead>
@@ -639,6 +728,20 @@ export default function SupervisorDashboard() {
                     ))}
                   </div>
                   <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    {activeOeeTab === "overview" && (
+                      <button
+                        onClick={() => handleExport("oee")}
+                        disabled={exporting}
+                        style={{
+                          padding: "7px 16px", fontSize: 13, fontWeight: 500,
+                          border: "1px solid #ddd", borderRadius: 8,
+                          background: "#fff", color: "#555",
+                          cursor: exporting ? "not-allowed" : "pointer",
+                          fontFamily: "inherit",
+                        }}>
+                        {exporting ? "Exporting…" : "↓ Export Data"}
+                      </button>
+                    )}
                     <button onClick={() => setHuddleOpen(true)} style={{
                       padding: "7px 16px", fontSize: 13, fontWeight: 500,
                       border: "1px solid #1D9E75", borderRadius: 8,
@@ -652,17 +755,9 @@ export default function SupervisorDashboard() {
                   </div>
                 </div>
 
-                {activeOeeTab === "overview" && (
-                  <OEEMetrics summary={oeeSummary} />
-                )}
-
-                {activeOeeTab === "workorders" && (
-                  <WorkOrderPanel onSaved={loadOEE} />
-                )}
-
-                {activeOeeTab === "downtime" && (
-                  <WeeklyLaborPanel onSaved={loadOEE} />
-                )}
+                {activeOeeTab === "overview" && <OEEMetrics summary={oeeSummary} />}
+                {activeOeeTab === "workorders" && <WorkOrderPanel onSaved={loadOEE} />}
+                {activeOeeTab === "downtime" && <WeeklyLaborPanel onSaved={loadOEE} />}
 
                 {huddleOpen && (
                   <MorningHuddle

@@ -246,3 +246,9 @@ export async function deleteSupervisor(id) {
   const res = await fetch(`${BASE}/supervisors/${id}`, { method: "DELETE" });
   if (!res.ok) throw new Error(await res.text());
 }
+
+export async function exportAll() {
+  const res = await fetch(`${BASE}/export/all`);
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}

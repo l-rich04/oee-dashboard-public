@@ -840,3 +840,77 @@ def get_oee_summary(db: Session = Depends(get_db)):
             "weekly_trucks_max":  goals.weekly_trucks_max,
         }
     }
+
+@app.get("/export/all")
+def export_all(db: Session = Depends(get_db)):
+    from database import Issue as IssueModel, IssueUpdate as IssueUpdateModel
+
+    issues       = db.query(IssueModel).order_by(IssueModel.created_at.desc()).all()
+    updates      = db.query(IssueUpdateModel).order_by(IssueUpdateModel.issue_id, IssueUpdateModel.update_num).all()
+    work_orders  = db.query(WorkOrder).order_by(WorkOrder.week_start.desc()).all()
+    indirect     = db.query(IndirectLabor).order_by(IndirectLabor.week_start.desc()).all()
+    goal_history = db.query(GoalHistory).order_by(GoalHistory.effective_date.asc()).all()
+    foremen      = db.query(Foreman).order_by(Foreman.created_at.asc()).all()
+    supervisors  = db.query(Supervisor).order_by(Supervisor.created_at.asc()).all()
+
+    return {
+        "issues": [
+            {
+                "id":              i.id,
+                "issue_type":      i.issue_type,
+                "category":        i.category.replace("_", " ").title(),
+                "description":     i.description,
+                "foreman_name":    i.foreman_name,
+                "status":          i.status,
+                "resolution_note": i.resolution_note,
+                "solved_by":       i.solved_by,
+                "created_at":      str(i.created_at),
+                "updated_at":      str(i.updated_at),
+            }
+            for i in issues
+        ],
+        "issue_updates": [
+            {
+                "issue_id":   u.issue_id,
+                "update_num": u.update_num,
+                "note":       u.note,
+                "made_by":    u.made_by,
+                "created_at": str(u.created_at),
+            }
+            for u in updates
+        ],
+        "work_orders": [
+            {
+                "work_order_num":  wo.work_order_num,
+                "truck_type":      wo.truck_type,
+                "units_completed": wo.units_completed,
+                "total_defects":   wo.total_defects,
+                "week_start":      wo.week_start,
+                "created_at":      str(wo.created_at),
+            }
+            for wo in work_orders
+        ],
+        "labor_hours": [
+            {
+                "week_start":        r.week_start,
+                "working_days":      r.working_days,
+                "total_labor_hours": r.total_labor_hours,
+                "indirect_hours":    r.indirect_hours,
+                "rework_hours":      r.rework_hours,
+                "notes":             r.notes,
+            }
+            for r in indirect
+        ],
+        "goal_history": [
+            {
+                "effective_date":     g.effective_date,
+                "annual_dpu_goal":    g.annual_dpu_goal,
+                "quarterly_dpu_goal": g.quarterly_dpu_goal,
+                "weekly_trucks_min":  g.weekly_trucks_min,
+                "weekly_trucks_max":  g.weekly_trucks_max,
+            }
+            for g in goal_history
+        ],
+        "foremen":     [{"name": f.name} for f in foremen],
+        "supervisors": [{"name": s.name} for s in supervisors],
+    }
