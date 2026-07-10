@@ -252,3 +252,72 @@ export async function exportAll() {
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
+
+export async function getTruckTypes() {
+  const res = await fetch(`${BASE}/truck-types`);
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function createTruckType(name) {
+  const res = await fetch(`${BASE}/truck-types`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function deleteTruckType(id) {
+  const res = await fetch(`${BASE}/truck-types/${id}`, { method: "DELETE" });
+  if (!res.ok) throw new Error(await res.text());
+}
+
+export async function getDefectTypes() {
+  const res = await fetch(`${BASE}/defect-types`);
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function createDefectType(name) {
+  const res = await fetch(`${BASE}/defect-types`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function deleteDefectType(id) {
+  const res = await fetch(`${BASE}/defect-types/${id}`, { method: "DELETE" });
+  if (!res.ok) throw new Error(await res.text());
+}
+
+export async function getWorkOrderDefects(woId) {
+  const res = await fetch(`${BASE}/work-orders/${woId}/defects`);
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function addWorkOrderDefect(woId, defectTypeId, quantity) {
+  const res = await fetch(`${BASE}/work-orders/${woId}/defects`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ defect_type_id: defectTypeId, quantity }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function deleteWorkOrderDefect(woId, defectId) {
+  const res = await fetch(`${BASE}/work-orders/${woId}/defects/${defectId}`, { method: "DELETE" });
+  if (!res.ok) throw new Error(await res.text());
+}
+
+export async function markWorkOrderRead(id) {
+  const res = await fetch(`${BASE}/work-orders/${id}/read`, { method: "PUT" });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}

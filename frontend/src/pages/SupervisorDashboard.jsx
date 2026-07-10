@@ -1,6 +1,6 @@
 import { Helmet } from "react-helmet-async";
 import { useEffect, useState, useRef } from "react";
-import { getIssues, getSummary, deleteIssue, getOEESummary, getForemen, markIssueRead, exportAll } from "../api/issues";
+import { getIssues, getSummary, deleteIssue, getOEESummary, getForemen, markIssueRead, exportAll, getWorkOrders, markWorkOrderRead } from "../api/issues";
 import IssueStatusBadge from "../components/IssueStatusBadge";
 import IssueUpdatePanel from "../components/IssueUpdatePanel";
 import IssueEditPanel from "../components/IssueEditPanel";
@@ -14,6 +14,8 @@ import ForemanManagePanel from "../components/ForemanManagePanel";
 import IssuesSummary from "../components/IssuesSummary";
 import MorningHuddle from "../components/MorningHuddle";
 import SupervisorManagePanel from "../components/SupervisorManagePanel";
+import TruckTypeManagePanel from "../components/TruckTypeManagePanel";
+import DefectTypeManagePanel from "../components/DefectTypeManagePanel";
 
 function daysOld(createdAt) {
   const created = new Date(createdAt + "Z");
@@ -35,6 +37,7 @@ export default function SupervisorDashboard() {
   const [summary, setSummary]                 = useState(null);
   const [oeeSummary, setOeeSummary]           = useState(null);
   const [foremen, setForemen]                 = useState([]);
+  const [workOrders, setWorkOrders]           = useState([]);
   const [period, setPeriod]                   = useState("ytd");
   const [updating, setUpdating]               = useState(null);
   const [editing, setEditing]                 = useState(null);
@@ -49,33 +52,28 @@ export default function SupervisorDashboard() {
   const [notifPermission, setNotifPermission] = useState(Notification.permission);
   const [exporting, setExporting]             = useState(false);
 
-  const knownIssueIds = useRef(null);
+  const knownIssueIds    = useRef(null);
+  const knownWorkOrderIds = useRef(null);
 
   useEffect(() => {
     if (!authed) return;
     if (Notification.permission === "default") {
-      Notification.requestPermission().then(perm => {
-        setNotifPermission(perm);
-      });
+      Notification.requestPermission().then(perm => setNotifPermission(perm));
     }
   }, [authed]);
 
   async function load() {
     const [data, sum] = await Promise.all([getIssues({}), getSummary(period)]);
-
     if (knownIssueIds.current !== null && Notification.permission === "granted") {
       const newIssues = data.filter(i => !knownIssueIds.current.has(i.id));
       newIssues.forEach(issue => {
         const notif = new Notification("New Issue Submitted", {
           body: `${issue.foreman_name} — ${titleCase(issue.category)}: ${issue.description}`,
-          icon: "/favicon.svg",
-          badge: "/favicon.svg",
-          tag: `issue-${issue.id}`,
+          icon: "/favicon.svg", badge: "/favicon.svg", tag: `issue-${issue.id}`,
         });
         notif.onclick = () => { window.focus(); notif.close(); };
       });
     }
-
     knownIssueIds.current = new Set(data.map(i => i.id));
     setIssues(data);
     setSummary(sum);
@@ -84,30 +82,42 @@ export default function SupervisorDashboard() {
   }
 
   async function loadOEE() {
-    try {
-      const data = await getOEESummary();
-      setOeeSummary(data);
-    } catch (err) {
-      console.error("OEE error:", err);
-    }
+    try { const data = await getOEESummary(); setOeeSummary(data); }
+    catch (err) { console.error("OEE error:", err); }
   }
 
   async function loadForemen() {
+    try { const data = await getForemen(); setForemen(data.map(f => f.name)); }
+    catch (err) { console.error("Foremen error:", err); }
+  }
+
+  async function loadWorkOrders() {
     try {
-      const data = await getForemen();
-      setForemen(data.map(f => f.name));
+      const data = await getWorkOrders();
+      if (knownWorkOrderIds.current !== null && Notification.permission === "granted") {
+        const newWOs = data.filter(wo => !knownWorkOrderIds.current.has(wo.id));
+        newWOs.forEach(wo => {
+          const notif = new Notification("New Defect Report Submitted", {
+            body: `Work order ${wo.work_order_num} — ${wo.truck_type} — ${wo.total_defects} defect${wo.total_defects !== 1 ? "s" : ""}`,
+            icon: "/favicon.svg", badge: "/favicon.svg", tag: `wo-${wo.id}`,
+          });
+          notif.onclick = () => { window.focus(); notif.close(); };
+        });
+      }
+      knownWorkOrderIds.current = new Set(data.map(wo => wo.id));
+      setWorkOrders(data);
     } catch (err) {
-      console.error("Foremen error:", err);
+      console.error("Work orders error:", err);
     }
   }
 
   useEffect(() => {
-    if (authed) { load(); loadOEE(); loadForemen(); }
+    if (authed) { load(); loadOEE(); loadForemen(); loadWorkOrders(); }
   }, [authed, period]);
 
   useEffect(() => {
     if (!authed) return;
-    const interval = setInterval(() => { load(); }, 30000);
+    const interval = setInterval(() => { load(); loadWorkOrders(); }, 30000);
     return () => clearInterval(interval);
   }, [authed]);
 
@@ -117,81 +127,48 @@ export default function SupervisorDashboard() {
       const data = await exportAll();
       const XLSX = await import("https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs");
       const wb   = XLSX.utils.book_new();
-
       if (mode === "issues") {
-        // Issues sheet
         const issueRows = data.issues.map(i => ({
-          "ID":              i.id,
-          "Type":            i.issue_type === "part" ? "Part Issue" : "Process Issue",
-          "Category":        i.category,
-          "Description":     i.description,
-          "Foreman":         i.foreman_name,
-          "Status":          i.status.replace("_", " ").replace(/\b\w/g, c => c.toUpperCase()),
-          "Resolution Note": i.resolution_note ?? "",
-          "Solved By":       i.solved_by ?? "",
-          "Created":         i.created_at,
-          "Updated":         i.updated_at,
+          "ID": i.id, "Type": i.issue_type === "part" ? "Part Issue" : "Process Issue",
+          "Category": i.category, "Description": i.description, "Foreman": i.foreman_name,
+          "Status": i.status.replace("_", " ").replace(/\b\w/g, c => c.toUpperCase()),
+          "Resolution Note": i.resolution_note ?? "", "Solved By": i.solved_by ?? "",
+          "Created": i.created_at, "Updated": i.updated_at,
         }));
         XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(issueRows), "Issues");
-
-        // Issue Updates sheet
         const updateRows = data.issue_updates.map(u => ({
-          "Issue ID":   u.issue_id,
-          "Update #":   u.update_num,
-          "Note":       u.note,
-          "Made By":    u.made_by ?? "",
-          "Created At": u.created_at,
+          "Issue ID": u.issue_id, "Update #": u.update_num, "Note": u.note,
+          "Made By": u.made_by ?? "", "Created At": u.created_at,
         }));
         XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(updateRows), "Issue Updates");
       }
-
       if (mode === "oee") {
-        // Work Orders sheet
         const woRows = data.work_orders.map(wo => ({
-          "Work Order #":    wo.work_order_num,
-          "Truck Type":      wo.truck_type,
-          "Units Completed": wo.units_completed,
-          "Total Defects":   wo.total_defects,
-          "DPU":             wo.units_completed > 0 ? (wo.total_defects / wo.units_completed).toFixed(2) : 0,
-          "Week Start":      wo.week_start,
-          "Created At":      wo.created_at,
+          "Work Order #": wo.work_order_num, "Truck Type": wo.truck_type,
+          "Units Completed": wo.units_completed, "Total Defects": wo.total_defects,
+          "DPU": wo.units_completed > 0 ? (wo.total_defects / wo.units_completed).toFixed(2) : 0,
+          "Week Start": wo.week_start, "Created At": wo.created_at,
         }));
         XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(woRows), "Work Orders");
-
-        // Labor Hours sheet
         const laborRows = data.labor_hours.map(r => ({
-          "Week Start":        r.week_start,
-          "Working Days":      r.working_days,
-          "Total Labor Hours": r.total_labor_hours,
-          "Indirect Hours":    r.indirect_hours,
-          "Rework Hours":      r.rework_hours,
-          "Availability %":    r.total_labor_hours > 0
-            ? (((r.total_labor_hours - r.indirect_hours - r.rework_hours) / r.total_labor_hours) * 100).toFixed(1)
-            : 0,
+          "Week Start": r.week_start, "Working Days": r.working_days,
+          "Total Labor Hours": r.total_labor_hours, "Indirect Hours": r.indirect_hours,
+          "Rework Hours": r.rework_hours,
+          "Availability %": r.total_labor_hours > 0 ? (((r.total_labor_hours - r.indirect_hours - r.rework_hours) / r.total_labor_hours) * 100).toFixed(1) : 0,
           "Notes": r.notes ?? "",
         }));
         XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(laborRows), "Labor Hours");
-
-        // Goal History sheet
         const goalRows = data.goal_history.map(g => ({
-          "Effective Date":     g.effective_date,
-          "Annual DPU Goal":    g.annual_dpu_goal,
-          "Quarterly DPU Goal": g.quarterly_dpu_goal,
-          "Weekly Trucks Min":  g.weekly_trucks_min,
-          "Weekly Trucks Max":  g.weekly_trucks_max,
+          "Effective Date": g.effective_date, "Annual DPU Goal": g.annual_dpu_goal,
+          "Quarterly DPU Goal": g.quarterly_dpu_goal, "Weekly Trucks Min": g.weekly_trucks_min,
+          "Weekly Trucks Max": g.weekly_trucks_max,
         }));
         XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(goalRows), "Goal History");
-
-        // Foremen sheet
         XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.foremen), "Foremen");
-
-        // Supervisors sheet
         XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.supervisors), "Supervisors");
       }
-
-      const date     = new Date().toISOString().split("T")[0];
-      const filename = mode === "issues" ? `OEE_Issues_${date}.xlsx` : `OEE_Production_${date}.xlsx`;
-      XLSX.writeFile(wb, filename);
+      const date = new Date().toISOString().split("T")[0];
+      XLSX.writeFile(wb, mode === "issues" ? `OEE_Issues_${date}.xlsx` : `OEE_Production_${date}.xlsx`);
     } catch (err) {
       console.error("Export failed:", err);
       alert("Export failed. Please try again.");
@@ -200,15 +177,16 @@ export default function SupervisorDashboard() {
     }
   }
 
-  const activeIssues = issues.filter(i => i.status !== "solved");
-  const solvedIssues = issues.filter(i => i.status === "solved");
-  const unreadCount  = activeIssues.filter(i => !i.is_read).length;
+  const activeIssues  = issues.filter(i => i.status !== "solved");
+  const solvedIssues  = issues.filter(i => i.status === "solved");
+  const unreadCount   = activeIssues.filter(i => !i.is_read).length;
+  const unreadWOCount = workOrders.filter(wo => !wo.is_read).length;
+  const totalUnread   = unreadCount + unreadWOCount;
 
   useEffect(() => {
-    const canvas  = document.createElement("canvas");
-    canvas.width  = 32;
-    canvas.height = 32;
-    const ctx     = canvas.getContext("2d");
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = 32;
+    const ctx    = canvas.getContext("2d");
     const svgData = `<svg width="32" height="32" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
       <rect width="32" height="32" rx="6" fill="#1D9E75"/>
       <rect x="4" y="20" width="4" height="8" rx="1" fill="white" opacity="0.9"/>
@@ -224,93 +202,62 @@ export default function SupervisorDashboard() {
     img.onload = () => {
       ctx.drawImage(img, 0, 0, 32, 32);
       URL.revokeObjectURL(url);
-      if (unreadCount > 0) {
-        ctx.beginPath();
-        ctx.arc(22, 10, 11, 0, 2 * Math.PI);
-        ctx.fillStyle = "#E24B4A";
-        ctx.fill();
-        ctx.fillStyle = "#fff";
-        ctx.font      = "bold 11px Arial";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText(unreadCount > 9 ? "9+" : String(unreadCount), 22, 10);
+      if (totalUnread > 0) {
+        ctx.beginPath(); ctx.arc(22, 10, 11, 0, 2 * Math.PI);
+        ctx.fillStyle = "#E24B4A"; ctx.fill();
+        ctx.fillStyle = "#fff"; ctx.font = "bold 11px Arial";
+        ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        ctx.fillText(totalUnread > 9 ? "9+" : String(totalUnread), 22, 10);
       }
       let link = document.querySelector("link[rel~='icon']");
       if (!link) { link = document.createElement("link"); link.rel = "icon"; document.head.appendChild(link); }
-      link.type = "image/png";
-      link.href = canvas.toDataURL("image/png");
+      link.type = "image/png"; link.href = canvas.toDataURL("image/png");
     };
-  }, [unreadCount]);
+  }, [totalUnread]);
 
-  function toggleForeman(key) {
-    setExpandedForemen(prev => ({ ...prev, [key]: !prev[key] }));
-  }
-
+  function toggleForeman(key) { setExpandedForemen(prev => ({ ...prev, [key]: !prev[key] })); }
   function toggleCheck(id) {
-    setCheckedIds(prev => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
+    setCheckedIds(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; });
   }
-
-  function confirmDelete(ids) {
-    setToDelete(ids);
-    setUpdating(null);
-    setEditing(null);
-    setMassAdding(false);
-  }
-
+  function confirmDelete(ids) { setToDelete(ids); setUpdating(null); setEditing(null); setMassAdding(false); }
   async function handleDelete() {
     if (!toDelete) return;
     await Promise.all(toDelete.map(id => deleteIssue(id)));
-    setToDelete(null);
-    setDeleteMsg(true);
+    setToDelete(null); setDeleteMsg(true);
     setTimeout(() => setDeleteMsg(false), 3000);
     load();
   }
 
   const grouped = activeIssues.reduce((acc, issue) => {
-    const key = issue.foreman_name;
-    if (!acc[key]) acc[key] = [];
-    acc[key].push(issue);
-    return acc;
+    if (!acc[issue.foreman_name]) acc[issue.foreman_name] = [];
+    acc[issue.foreman_name].push(issue); return acc;
   }, {});
-
   const solvedGrouped = solvedIssues.reduce((acc, issue) => {
-    const key = issue.foreman_name;
-    if (!acc[key]) acc[key] = [];
-    acc[key].push(issue);
-    return acc;
+    if (!acc[issue.foreman_name]) acc[issue.foreman_name] = [];
+    acc[issue.foreman_name].push(issue); return acc;
   }, {});
-
   const sortForemen = (keys) => [...keys].sort((a, b) => {
-    const aIdx = foremen.indexOf(a);
-    const bIdx = foremen.indexOf(b);
+    const aIdx = foremen.indexOf(a), bIdx = foremen.indexOf(b);
     if (aIdx === -1 && bIdx === -1) return a.localeCompare(b);
-    if (aIdx === -1) return 1;
-    if (bIdx === -1) return -1;
+    if (aIdx === -1) return 1; if (bIdx === -1) return -1;
     return aIdx - bIdx;
   });
-
   const sortedForemen       = sortForemen(Object.keys(grouped));
   const sortedSolvedForemen = sortForemen(Object.keys(solvedGrouped));
 
-  if (!authed) {
-    return <SupervisorLogin onSuccess={() => setAuthed(true)} />;
-  }
+  if (!authed) return <SupervisorLogin onSuccess={() => setAuthed(true)} />;
 
   return (
     <>
       <Helmet>
-        <title>{unreadCount > 0 ? `(${unreadCount}) Supervisor Dashboard` : "Supervisor Dashboard"}</title>
+        <title>{totalUnread > 0 ? `(${totalUnread}) Supervisor Dashboard` : "Supervisor Dashboard"}</title>
       </Helmet>
       <main style={{ maxWidth: 1600, margin: "40px auto", padding: "0 24px" }}>
-
         {loading ? (
           <p style={{ fontSize: 14, color: "#aaa", marginTop: 80, textAlign: "center" }}>Loading dashboard...</p>
         ) : (
           <>
+            {/* HEADER */}
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
               <h1 style={{ fontSize: 22, fontWeight: 500, margin: 0 }}>Supervisor Dashboard</h1>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -324,9 +271,7 @@ export default function SupervisorDashboard() {
                     fontSize: 11, color: "#854F0B", background: "#FAEEDA",
                     border: "1px solid #EF9F27", padding: "4px 12px",
                     borderRadius: 8, cursor: "pointer", fontFamily: "inherit",
-                  }}>
-                    Enable notifications
-                  </button>
+                  }}>Enable notifications</button>
                 )}
                 {notifPermission === "granted" && (
                   <span style={{ fontSize: 11, color: "#0F6E56", background: "#E1F5EE", padding: "3px 10px", borderRadius: 8 }}>
@@ -344,23 +289,22 @@ export default function SupervisorDashboard() {
               {["issues", "oee"].map(tab => (
                 <button key={tab} onClick={() => setActiveTab(tab)} style={{
                   padding: "10px 20px", fontSize: 13, fontWeight: 500,
-                  border: "none", background: "none", cursor: "pointer",
-                  fontFamily: "inherit",
+                  border: "none", background: "none", cursor: "pointer", fontFamily: "inherit",
                   color: activeTab === tab ? "#1D9E75" : "#888",
                   borderBottom: `2px solid ${activeTab === tab ? "#1D9E75" : "transparent"}`,
-                  marginBottom: -1,
-                  display: "flex", alignItems: "center", gap: 6,
+                  marginBottom: -1, display: "flex", alignItems: "center", gap: 6,
                 }}>
                   {tab === "issues" ? "Issues" : "OEE & Production"}
-                  {tab === "issues" && unreadCount > 0 && (
-                    <span style={{
-                      background: "#E24B4A", color: "#fff",
-                      fontSize: 10, fontWeight: 700,
-                      padding: "1px 6px", borderRadius: 10, lineHeight: "16px",
-                    }}>
-                      {unreadCount}
-                    </span>
-                  )}
+{tab === "issues" && unreadCount > 0 && (
+  <span style={{ background: "#E24B4A", color: "#fff", fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 10, lineHeight: "16px" }}>
+    {unreadCount}
+  </span>
+)}
+{tab === "oee" && unreadWOCount > 0 && (
+  <span style={{ background: "#E24B4A", color: "#fff", fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 10, lineHeight: "16px" }}>
+    {unreadWOCount}
+  </span>
+)}
                 </button>
               ))}
             </div>
@@ -369,78 +313,45 @@ export default function SupervisorDashboard() {
             {activeTab === "issues" && (
               <>
                 <IssuesSummary issues={issues} period={period} onPeriodChange={(p) => setPeriod(p)} />
-
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
                   <h2 style={{ fontSize: 16, fontWeight: 500, margin: 0 }}>All Issues</h2>
-                  <div style={{ display: "flex", gap: 8 }}>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                     <ForemanManagePanel onChanged={loadForemen} />
                     <SupervisorManagePanel onChanged={() => {}} />
-                    <button
-                      onClick={() => handleExport("issues")}
-                      disabled={exporting}
-                      style={{
-                        padding: "8px 16px", background: "#fff", color: "#555",
-                        border: "1px solid #ddd", borderRadius: 8, fontSize: 13,
-                        fontWeight: 500, cursor: exporting ? "not-allowed" : "pointer",
-                        fontFamily: "inherit",
-                      }}>
+                    <button onClick={() => handleExport("issues")} disabled={exporting} style={{
+                      padding: "8px 16px", background: "#fff", color: "#555",
+                      border: "1px solid #ddd", borderRadius: 8, fontSize: 13,
+                      fontWeight: 500, cursor: exporting ? "not-allowed" : "pointer", fontFamily: "inherit",
+                    }}>
                       {exporting ? "Exporting…" : "↓ Export Issues"}
                     </button>
-                    <button
-                      onClick={() => {
-                        setMassAdding(prev => !prev);
-                        setUpdating(null);
-                        setEditing(null);
-                        setToDelete(null);
-                      }}
-                      style={{
-                        padding: "8px 16px", background: "#1D9E75", color: "#fff",
-                        border: "none", borderRadius: 8, fontSize: 13,
-                        fontWeight: 500, cursor: "pointer", fontFamily: "inherit",
-                      }}>
-                      + Add Multiple Issues
-                    </button>
+                    <button onClick={() => { setMassAdding(prev => !prev); setUpdating(null); setEditing(null); setToDelete(null); }} style={{
+                      padding: "8px 16px", background: "#1D9E75", color: "#fff",
+                      border: "none", borderRadius: 8, fontSize: 13,
+                      fontWeight: 500, cursor: "pointer", fontFamily: "inherit",
+                    }}>+ Add Multiple Issues</button>
                   </div>
                 </div>
 
-                {massAdding && (
-                  <MassAddPanel onClose={() => setMassAdding(false)} onSaved={() => { setMassAdding(false); load(); }} />
-                )}
-                {updating && (
-                  <IssueUpdatePanel issue={updating} onClose={() => setUpdating(null)} onSaved={load} />
-                )}
-                {editing && (
-                  <IssueEditPanel issue={editing} onClose={() => setEditing(null)} onSaved={load} />
-                )}
+                {massAdding && <MassAddPanel onClose={() => setMassAdding(false)} onSaved={() => { setMassAdding(false); load(); }} />}
+                {updating && <IssueUpdatePanel issue={updating} onClose={() => setUpdating(null)} onSaved={load} />}
+                {editing && <IssueEditPanel issue={editing} onClose={() => setEditing(null)} onSaved={load} />}
 
                 {toDelete && (
                   <div style={{ marginTop: 16, padding: 20, border: "1px solid #E24B4A", borderRadius: 12, background: "#fff", marginBottom: 16 }}>
                     <p style={{ margin: "0 0 6px", fontSize: 14, fontWeight: 500, color: "#A32D2D" }}>
                       Delete {toDelete.length} Issue{toDelete.length > 1 ? "s" : ""}?
                     </p>
-                    <p style={{ margin: "0 0 12px", fontSize: 13, color: "#666" }}>
-                      The following will be permanently deleted. This cannot be undone.
-                    </p>
+                    <p style={{ margin: "0 0 12px", fontSize: 13, color: "#666" }}>The following will be permanently deleted. This cannot be undone.</p>
                     <ul style={{ margin: "0 0 16px", paddingLeft: 20, fontSize: 13, color: "#333" }}>
                       {toDelete.map(id => {
                         const issue = issues.find(i => i.id === id);
-                        return issue ? (
-                          <li key={id} style={{ marginBottom: 4 }}>
-                            Issue #{id} — {titleCase(issue.category)} ({issue.foreman_name})
-                          </li>
-                        ) : null;
+                        return issue ? <li key={id} style={{ marginBottom: 4 }}>Issue #{id} — {titleCase(issue.category)} ({issue.foreman_name})</li> : null;
                       })}
                     </ul>
                     <div style={{ display: "flex", gap: 8 }}>
-                      <button onClick={handleDelete} style={{
-                        padding: "8px 20px", background: "#E24B4A", color: "#fff",
-                        border: "none", borderRadius: 8, cursor: "pointer",
-                        fontSize: 13, fontWeight: 500, fontFamily: "inherit",
-                      }}>Yes, Delete</button>
-                      <button onClick={() => setToDelete(null)} style={{
-                        padding: "8px 16px", background: "#fff", border: "1px solid #ddd",
-                        borderRadius: 8, cursor: "pointer", fontSize: 13, fontFamily: "inherit",
-                      }}>Cancel</button>
+                      <button onClick={handleDelete} style={{ padding: "8px 20px", background: "#E24B4A", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontSize: 13, fontWeight: 500, fontFamily: "inherit" }}>Yes, Delete</button>
+                      <button onClick={() => setToDelete(null)} style={{ padding: "8px 16px", background: "#fff", border: "1px solid #ddd", borderRadius: 8, cursor: "pointer", fontSize: 13, fontFamily: "inherit" }}>Cancel</button>
                     </div>
                   </div>
                 )}
@@ -455,69 +366,42 @@ export default function SupervisorDashboard() {
                   <span style={{ fontSize: 13, color: "#888" }}>
                     {checkedIds.size > 0 ? `${checkedIds.size} issue${checkedIds.size > 1 ? "s" : ""} selected` : ""}
                   </span>
-                  <button
-                    disabled={checkedIds.size === 0}
-                    onClick={() => confirmDelete([...checkedIds])}
-                    style={{
-                      padding: "7px 16px", fontSize: 13, borderRadius: 8,
-                      cursor: checkedIds.size > 0 ? "pointer" : "not-allowed",
-                      border: "1px solid #E24B4A",
-                      background: checkedIds.size > 0 ? "#FCEBEB" : "#f5f5f5",
-                      color: checkedIds.size > 0 ? "#A32D2D" : "#bbb",
-                      fontWeight: 500, fontFamily: "inherit",
-                    }}>
-                    Delete Selected
-                  </button>
+                  <button disabled={checkedIds.size === 0} onClick={() => confirmDelete([...checkedIds])} style={{
+                    padding: "7px 16px", fontSize: 13, borderRadius: 8,
+                    cursor: checkedIds.size > 0 ? "pointer" : "not-allowed",
+                    border: "1px solid #E24B4A",
+                    background: checkedIds.size > 0 ? "#FCEBEB" : "#f5f5f5",
+                    color: checkedIds.size > 0 ? "#A32D2D" : "#bbb",
+                    fontWeight: 500, fontFamily: "inherit",
+                  }}>Delete Selected</button>
                 </div>
 
-                {sortedForemen.length === 0 && (
-                  <p style={{ textAlign: "center", color: "#999", marginTop: 40 }}>No Active Issues Found.</p>
-                )}
+                {sortedForemen.length === 0 && <p style={{ textAlign: "center", color: "#999", marginTop: 40 }}>No Active Issues Found.</p>}
 
                 {sortedForemen.map(foremanName => {
                   const foremanIssues = grouped[foremanName];
                   if (foremanIssues.length === 0) return null;
                   const isOpen   = expandedForemen[foremanName];
                   const newCount = foremanIssues.filter(i => !i.is_read).length;
-                  const counts   = foremanIssues.reduce((acc, i) => {
-                    acc[i.status] = (acc[i.status] ?? 0) + 1;
-                    return acc;
-                  }, {});
-
+                  const counts   = foremanIssues.reduce((acc, i) => { acc[i.status] = (acc[i.status] ?? 0) + 1; return acc; }, {});
                   return (
                     <div key={foremanName} style={{ border: "0.5px solid #eee", borderRadius: 10, marginBottom: 8, overflow: "hidden" }}>
-                      <div style={{
-                        display: "flex", alignItems: "center", justifyContent: "space-between",
-                        padding: "12px 16px", background: "#fafafa",
-                        borderBottom: isOpen ? "0.5px solid #eee" : "none",
-                      }}>
-                        <button type="button" onClick={() => toggleForeman(foremanName)} style={{
-                          display: "flex", alignItems: "center", gap: 12,
-                          background: "none", border: "none", cursor: "pointer",
-                          fontFamily: "inherit", padding: 0, flex: 1, textAlign: "left",
-                        }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", background: "#fafafa", borderBottom: isOpen ? "0.5px solid #eee" : "none" }}>
+                        <button type="button" onClick={() => toggleForeman(foremanName)} style={{ display: "flex", alignItems: "center", gap: 12, background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", padding: 0, flex: 1, textAlign: "left" }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                             <span style={{ fontSize: 13, fontWeight: 500, color: "#333" }}>{foremanName}</span>
-                            {newCount > 0 && (
-                              <span style={{ background: "#E24B4A", color: "#fff", fontSize: 9, fontWeight: 700, padding: "1px 5px", borderRadius: 8 }}>
-                                {newCount} new
-                              </span>
-                            )}
+                            {newCount > 0 && <span style={{ background: "#E24B4A", color: "#fff", fontSize: 9, fontWeight: 700, padding: "1px 5px", borderRadius: 8 }}>{newCount} new</span>}
                           </div>
                         </button>
                         <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
                           <span style={{ fontSize: 12, color: "#888" }}>{foremanIssues.length} issue{foremanIssues.length !== 1 ? "s" : ""}</span>
                           {counts.open > 0 && <span style={{ fontSize: 11, color: "#854F0B" }}>{counts.open} open</span>}
                           {counts.in_progress > 0 && <span style={{ fontSize: 11, color: "#854F0B" }}>{counts.in_progress} in progress</span>}
-                          <span onClick={() => toggleForeman(foremanName)} style={{
-                            fontSize: 12, color: "#555", fontWeight: 500,
-                            background: "#eee", borderRadius: 4, padding: "2px 8px", cursor: "pointer",
-                          }}>
+                          <span onClick={() => toggleForeman(foremanName)} style={{ fontSize: 12, color: "#555", fontWeight: 500, background: "#eee", borderRadius: 4, padding: "2px 8px", cursor: "pointer" }}>
                             {isOpen ? "▲ Hide" : "▼ Show"}
                           </span>
                         </div>
                       </div>
-
                       {isOpen && (
                         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                           <thead>
@@ -536,21 +420,14 @@ export default function SupervisorDashboard() {
                           </thead>
                           <tbody>
                             {foremanIssues.map(issue => (
-                              <tr key={issue.id} style={{
-                                borderBottom: "0.5px solid #f5f5f5",
-                                background: checkedIds.has(issue.id) ? "#FFF5F5" : !issue.is_read ? "#FFFBF0" : "white",
-                              }}>
+                              <tr key={issue.id} style={{ borderBottom: "0.5px solid #f5f5f5", background: checkedIds.has(issue.id) ? "#FFF5F5" : !issue.is_read ? "#FFFBF0" : "white" }}>
                                 <td style={{ padding: "8px 12px" }}>
-                                  <input type="checkbox" checked={checkedIds.has(issue.id)}
-                                    onChange={() => toggleCheck(issue.id)}
-                                    style={{ cursor: "pointer", accentColor: "#E24B4A" }} />
+                                  <input type="checkbox" checked={checkedIds.has(issue.id)} onChange={() => toggleCheck(issue.id)} style={{ cursor: "pointer", accentColor: "#E24B4A" }} />
                                 </td>
                                 <td style={tdStyle}>
                                   <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                                     #{issue.id}
-                                    {!issue.is_read && (
-                                      <span style={{ background: "#E24B4A", color: "#fff", fontSize: 9, fontWeight: 700, padding: "1px 5px", borderRadius: 8 }}>NEW</span>
-                                    )}
+                                    {!issue.is_read && <span style={{ background: "#E24B4A", color: "#fff", fontSize: 9, fontWeight: 700, padding: "1px 5px", borderRadius: 8 }}>NEW</span>}
                                   </div>
                                 </td>
                                 <td style={tdStyle}>{issue.issue_type === "part" ? "Part Issue" : "Process Issue"}</td>
@@ -562,37 +439,18 @@ export default function SupervisorDashboard() {
                                     background: daysOld(issue.created_at) === "Today" ? "#E1F5EE" : parseInt(daysOld(issue.created_at)) > 7 ? "#FCEBEB" : "#FAEEDA",
                                     color: daysOld(issue.created_at) === "Today" ? "#0F6E56" : parseInt(daysOld(issue.created_at)) > 7 ? "#A32D2D" : "#854F0B",
                                     padding: "3px 10px", borderRadius: 12, fontSize: 11, fontWeight: 500,
-                                  }}>
-                                    {daysOld(issue.created_at)}
-                                  </span>
+                                  }}>{daysOld(issue.created_at)}</span>
                                 </td>
                                 <td style={tdStyle}>{new Date(issue.created_at + "Z").toLocaleDateString()}</td>
                                 <td style={{ ...tdStyle, fontSize: 12, color: "#888" }}>{issue.update_count ?? 0}</td>
                                 <td style={tdStyle}>
                                   <div style={{ display: "flex", gap: 5, alignItems: "center", flexWrap: "wrap" }}>
                                     {!issue.is_read && (
-                                      <button onClick={async () => { await markIssueRead(issue.id); load(); }} style={{
-                                        padding: "3px 8px", fontSize: 11,
-                                        border: "1px solid #D4A017", background: "#FAEEDA",
-                                        color: "#854F0B", borderRadius: 6, cursor: "pointer", fontWeight: 600,
-                                      }}>Mark Read</button>
+                                      <button onClick={async () => { await markIssueRead(issue.id); load(); }} style={{ padding: "3px 8px", fontSize: 11, border: "1px solid #D4A017", background: "#FAEEDA", color: "#854F0B", borderRadius: 6, cursor: "pointer", fontWeight: 600 }}>Mark Read</button>
                                     )}
-                                    <button onClick={async () => {
-                                      setUpdating(issue); setEditing(null); setToDelete(null); setMassAdding(false);
-                                      if (!issue.is_read) { await markIssueRead(issue.id); load(); }
-                                    }} style={{ ...btnBase, border: "1px solid #1D9E75", background: "#E1F5EE", color: "#0F6E56", fontWeight: 500 }}>
-                                      Update
-                                    </button>
-                                    <button onClick={async () => {
-                                      setEditing(issue); setUpdating(null); setToDelete(null); setMassAdding(false);
-                                      if (!issue.is_read) { await markIssueRead(issue.id); load(); }
-                                    }} style={{ ...btnBase, border: "1px solid #378ADD", background: "#E6F1FB", color: "#0C447C", fontWeight: 500 }}>
-                                      Edit
-                                    </button>
-                                    <button onClick={() => confirmDelete([issue.id])}
-                                      style={{ ...btnBase, border: "1px solid #E24B4A", background: "#FCEBEB", color: "#A32D2D" }}>
-                                      Delete
-                                    </button>
+                                    <button onClick={async () => { setUpdating(issue); setEditing(null); setToDelete(null); setMassAdding(false); if (!issue.is_read) { await markIssueRead(issue.id); load(); } }} style={{ ...btnBase, border: "1px solid #1D9E75", background: "#E1F5EE", color: "#0F6E56", fontWeight: 500 }}>Update</button>
+                                    <button onClick={async () => { setEditing(issue); setUpdating(null); setToDelete(null); setMassAdding(false); if (!issue.is_read) { await markIssueRead(issue.id); load(); } }} style={{ ...btnBase, border: "1px solid #378ADD", background: "#E6F1FB", color: "#0C447C", fontWeight: 500 }}>Edit</button>
+                                    <button onClick={() => confirmDelete([issue.id])} style={{ ...btnBase, border: "1px solid #E24B4A", background: "#FCEBEB", color: "#A32D2D" }}>Delete</button>
                                   </div>
                                 </td>
                               </tr>
@@ -604,55 +462,28 @@ export default function SupervisorDashboard() {
                   );
                 })}
 
-                {/* SOLVED / ARCHIVED SECTION */}
+                {/* SOLVED SECTION */}
                 <div style={{ marginTop: 24 }}>
-                  <button onClick={() => setShowSolved(prev => !prev)} style={{
-                    display: "flex", alignItems: "center", gap: 8,
-                    padding: "10px 16px", background: "#fafafa",
-                    border: "0.5px solid #eee", borderRadius: 8,
-                    fontSize: 13, fontWeight: 500, color: "#555",
-                    cursor: "pointer", fontFamily: "inherit",
-                    marginBottom: showSolved ? 16 : 0,
-                  }}>
+                  <button onClick={() => setShowSolved(prev => !prev)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 16px", background: "#fafafa", border: "0.5px solid #eee", borderRadius: 8, fontSize: 13, fontWeight: 500, color: "#555", cursor: "pointer", fontFamily: "inherit", marginBottom: showSolved ? 16 : 0 }}>
                     {showSolved ? "▲" : "▼"} View Solved
-                    <span style={{ fontSize: 11, color: "#aaa", fontWeight: 400 }}>
-                      ({solvedIssues.length} issue{solvedIssues.length !== 1 ? "s" : ""})
-                    </span>
+                    <span style={{ fontSize: 11, color: "#aaa", fontWeight: 400 }}>({solvedIssues.length} issue{solvedIssues.length !== 1 ? "s" : ""})</span>
                   </button>
-
                   {showSolved && (
                     <div style={{ marginTop: 8 }}>
-                      {sortedSolvedForemen.length === 0 && (
-                        <p style={{ textAlign: "center", color: "#999", padding: 24, fontSize: 13 }}>No solved issues yet.</p>
-                      )}
+                      {sortedSolvedForemen.length === 0 && <p style={{ textAlign: "center", color: "#999", padding: 24, fontSize: 13 }}>No solved issues yet.</p>}
                       {sortedSolvedForemen.map(foremanName => {
                         const foremanSolved = solvedGrouped[foremanName];
                         const isOpen        = expandedForemen[foremanName + "_solved"];
                         return (
                           <div key={foremanName} style={{ border: "0.5px solid #eee", borderRadius: 10, marginBottom: 8, overflow: "hidden" }}>
-                            <div style={{
-                              display: "flex", alignItems: "center", justifyContent: "space-between",
-                              padding: "12px 16px", background: "#fafafa",
-                              borderBottom: isOpen ? "0.5px solid #eee" : "none",
-                            }}>
-                              <button type="button" onClick={() => toggleForeman(foremanName + "_solved")} style={{
-                                display: "flex", alignItems: "center", gap: 12,
-                                background: "none", border: "none", cursor: "pointer",
-                                fontFamily: "inherit", padding: 0, flex: 1, textAlign: "left",
-                              }}>
+                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", background: "#fafafa", borderBottom: isOpen ? "0.5px solid #eee" : "none" }}>
+                              <button type="button" onClick={() => toggleForeman(foremanName + "_solved")} style={{ display: "flex", alignItems: "center", gap: 12, background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", padding: 0, flex: 1, textAlign: "left" }}>
                                 <span style={{ fontSize: 13, fontWeight: 500, color: "#333" }}>{foremanName}</span>
-                                <span style={{ fontSize: 11, background: "#E1F5EE", color: "#0F6E56", padding: "2px 8px", borderRadius: 10, fontWeight: 500 }}>
-                                  Solved
-                                </span>
+                                <span style={{ fontSize: 11, background: "#E1F5EE", color: "#0F6E56", padding: "2px 8px", borderRadius: 10, fontWeight: 500 }}>Solved</span>
                               </button>
                               <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
                                 <span style={{ fontSize: 12, color: "#888" }}>{foremanSolved.length} issue{foremanSolved.length !== 1 ? "s" : ""}</span>
-                                <span onClick={() => toggleForeman(foremanName + "_solved")} style={{
-                                  fontSize: 12, color: "#555", fontWeight: 500,
-                                  background: "#eee", borderRadius: 4, padding: "2px 8px", cursor: "pointer",
-                                }}>
-                                  {isOpen ? "▲ Hide" : "▼ Show"}
-                                </span>
+                                <span onClick={() => toggleForeman(foremanName + "_solved")} style={{ fontSize: 12, color: "#555", fontWeight: 500, background: "#eee", borderRadius: 4, padding: "2px 8px", cursor: "pointer" }}>{isOpen ? "▲ Hide" : "▼ Show"}</span>
                               </div>
                             </div>
                             {isOpen && (
@@ -670,15 +501,8 @@ export default function SupervisorDashboard() {
                                 </thead>
                                 <tbody>
                                   {foremanSolved.map(issue => (
-                                    <tr key={issue.id} style={{
-                                      borderBottom: "0.5px solid #f5f5f5",
-                                      background: checkedIds.has(issue.id) ? "#FFF5F5" : "#fafafa",
-                                    }}>
-                                      <td style={{ padding: "8px 12px" }}>
-                                        <input type="checkbox" checked={checkedIds.has(issue.id)}
-                                          onChange={() => toggleCheck(issue.id)}
-                                          style={{ cursor: "pointer", accentColor: "#E24B4A" }} />
-                                      </td>
+                                    <tr key={issue.id} style={{ borderBottom: "0.5px solid #f5f5f5", background: checkedIds.has(issue.id) ? "#FFF5F5" : "#fafafa" }}>
+                                      <td style={{ padding: "8px 12px" }}><input type="checkbox" checked={checkedIds.has(issue.id)} onChange={() => toggleCheck(issue.id)} style={{ cursor: "pointer", accentColor: "#E24B4A" }} /></td>
                                       <td style={tdStyle}>#{issue.id}</td>
                                       <td style={tdStyle}>{issue.issue_type === "part" ? "Part Issue" : "Process Issue"}</td>
                                       <td style={tdStyle}>{titleCase(issue.category)}</td>
@@ -686,14 +510,8 @@ export default function SupervisorDashboard() {
                                       <td style={tdStyle}>{new Date(issue.created_at + "Z").toLocaleDateString()}</td>
                                       <td style={tdStyle}>
                                         <div style={{ display: "flex", gap: 5 }}>
-                                          <button onClick={() => { setUpdating(issue); setEditing(null); setToDelete(null); setMassAdding(false); }}
-                                            style={{ ...btnBase, border: "1px solid #1D9E75", background: "#E1F5EE", color: "#0F6E56", fontWeight: 500 }}>
-                                            Update
-                                          </button>
-                                          <button onClick={() => confirmDelete([issue.id])}
-                                            style={{ ...btnBase, border: "1px solid #E24B4A", background: "#FCEBEB", color: "#A32D2D" }}>
-                                            Delete
-                                          </button>
+                                          <button onClick={() => { setUpdating(issue); setEditing(null); setToDelete(null); setMassAdding(false); }} style={{ ...btnBase, border: "1px solid #1D9E75", background: "#E1F5EE", color: "#0F6E56", fontWeight: 500 }}>Update</button>
+                                          <button onClick={() => confirmDelete([issue.id])} style={{ ...btnBase, border: "1px solid #E24B4A", background: "#FCEBEB", color: "#A32D2D" }}>Delete</button>
                                         </div>
                                       </td>
                                     </tr>
@@ -713,8 +531,8 @@ export default function SupervisorDashboard() {
             {/* OEE TAB */}
             {activeTab === "oee" && (
               <>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
-                  <div style={{ display: "flex", gap: 8 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 10 }}>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                     {["overview", "workorders", "downtime"].map(tab => (
                       <button key={tab} onClick={() => setActiveOeeTab(tab)} style={{
                         padding: "7px 16px", fontSize: 13, fontWeight: 500,
@@ -722,25 +540,33 @@ export default function SupervisorDashboard() {
                         borderRadius: 8, cursor: "pointer", fontFamily: "inherit",
                         background: activeOeeTab === tab ? "#E1F5EE" : "#fff",
                         color: activeOeeTab === tab ? "#0F6E56" : "#888",
+                        display: "flex", alignItems: "center", gap: 6,
                       }}>
                         {tab === "overview" ? "Overview" : tab === "workorders" ? "Work Orders" : "Downtime"}
+                        {tab === "workorders" && unreadWOCount > 0 && (
+                          <span style={{ background: "#E24B4A", color: "#fff", fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 10, lineHeight: "16px" }}>
+                            {unreadWOCount}
+                          </span>
+                        )}
                       </button>
                     ))}
                   </div>
-                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                     {activeOeeTab === "overview" && (
-                      <button
-                        onClick={() => handleExport("oee")}
-                        disabled={exporting}
-                        style={{
-                          padding: "7px 16px", fontSize: 13, fontWeight: 500,
-                          border: "1px solid #ddd", borderRadius: 8,
-                          background: "#fff", color: "#555",
-                          cursor: exporting ? "not-allowed" : "pointer",
-                          fontFamily: "inherit",
-                        }}>
+                      <button onClick={() => handleExport("oee")} disabled={exporting} style={{
+                        padding: "7px 16px", fontSize: 13, fontWeight: 500,
+                        border: "1px solid #ddd", borderRadius: 8,
+                        background: "#fff", color: "#555",
+                        cursor: exporting ? "not-allowed" : "pointer", fontFamily: "inherit",
+                      }}>
                         {exporting ? "Exporting…" : "↓ Export Data"}
                       </button>
+                    )}
+                    {activeOeeTab === "workorders" && (
+                      <>
+                        <TruckTypeManagePanel onChanged={() => {}} />
+                        <DefectTypeManagePanel onChanged={() => {}} />
+                      </>
                     )}
                     <button onClick={() => setHuddleOpen(true)} style={{
                       padding: "7px 16px", fontSize: 13, fontWeight: 500,
@@ -748,15 +574,19 @@ export default function SupervisorDashboard() {
                       background: "#E1F5EE", color: "#0F6E56",
                       cursor: "pointer", fontFamily: "inherit",
                       display: "flex", alignItems: "center", gap: 6,
-                    }}>
-                      ▶ Start Huddle
-                    </button>
+                    }}>▶ Start Huddle</button>
                     <OEEGoalsPanel onSaved={loadOEE} />
                   </div>
                 </div>
 
                 {activeOeeTab === "overview" && <OEEMetrics summary={oeeSummary} />}
-                {activeOeeTab === "workorders" && <WorkOrderPanel onSaved={loadOEE} />}
+                {activeOeeTab === "workorders" && (
+                  <WorkOrderPanel
+                    onSaved={() => { loadOEE(); loadWorkOrders(); }}
+                    unreadIds={new Set(workOrders.filter(wo => !wo.is_read).map(wo => wo.id))}
+                    onMarkRead={async (id) => { await markWorkOrderRead(id); loadWorkOrders(); }}
+                  />
+                )}
                 {activeOeeTab === "downtime" && <WeeklyLaborPanel onSaved={loadOEE} />}
 
                 {huddleOpen && (

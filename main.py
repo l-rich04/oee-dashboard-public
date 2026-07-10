@@ -4,8 +4,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from datetime import datetime, date, timedelta
 from typing import Optional
-from database import Base, engine, get_db, Issue, IssueUpdate, WorkOrder, DowntimeLog, OEEGoals, ReworkHours, Foreman, GoalHistory, IndirectLabor, Supervisor
-
+from database import Base, engine, get_db, Issue, IssueUpdate, WorkOrder, DowntimeLog, OEEGoals, ReworkHours, Foreman, GoalHistory, IndirectLabor, Supervisor, TruckType, DefectType, WorkOrderDefect
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
@@ -87,6 +86,7 @@ class WorkOrderOut(BaseModel):
     units_completed: int
     total_defects:   int
     week_start:      str
+    is_read:         bool = False
     created_at:      datetime
 
     model_config = {"from_attributes": True}
@@ -193,6 +193,37 @@ class GoalHistoryUpdate(BaseModel):
     quarterly_dpu_goal: float
     weekly_trucks_min:  int
     weekly_trucks_max:  int
+
+class TruckTypeCreate(BaseModel):
+    name: str
+
+class TruckTypeOut(BaseModel):
+    id:         int
+    name:       str
+    created_at: datetime
+    model_config = {"from_attributes": True}
+
+class DefectTypeCreate(BaseModel):
+    name: str
+
+class DefectTypeOut(BaseModel):
+    id:         int
+    name:       str
+    created_at: datetime
+    model_config = {"from_attributes": True}
+
+class WorkOrderDefectCreate(BaseModel):
+    defect_type_id: int
+    quantity:       int = 1
+
+class WorkOrderDefectOut(BaseModel):
+    id:              int
+    work_order_id:   int
+    defect_type_id:  int
+    defect_type_name: Optional[str] = None
+    quantity:        int
+    created_at:      datetime
+    model_config = {"from_attributes": True}
 
 
 # --- Issue endpoints ---
@@ -914,3 +945,133 @@ def export_all(db: Session = Depends(get_db)):
         "foremen":     [{"name": f.name} for f in foremen],
         "supervisors": [{"name": s.name} for s in supervisors],
     }
+
+# --- Truck type endpoints ---
+
+@app.get("/truck-types", response_model=list[TruckTypeOut])
+def get_truck_types(db: Session = Depends(get_db)):
+    return db.query(TruckType).order_by(TruckType.name.asc()).all()
+
+@app.post("/truck-types", response_model=TruckTypeOut, status_code=201)
+def create_truck_type(data: TruckTypeCreate, db: Session = Depends(get_db)):
+    name = data.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Name cannot be empty")
+    existing = db.query(TruckType).filter(TruckType.name == name).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Truck type already exists")
+    tt = TruckType(name=name)
+    db.add(tt)
+    db.commit()
+    db.refresh(tt)
+    return tt
+
+@app.delete("/truck-types/{tt_id}", status_code=204)
+def delete_truck_type(tt_id: int, db: Session = Depends(get_db)):
+    tt = db.query(TruckType).filter(TruckType.id == tt_id).first()
+    if not tt:
+        raise HTTPException(status_code=404, detail="Truck type not found")
+    db.delete(tt)
+    db.commit()
+    return
+
+
+# --- Defect type endpoints ---
+
+@app.get("/defect-types", response_model=list[DefectTypeOut])
+def get_defect_types(db: Session = Depends(get_db)):
+    return db.query(DefectType).order_by(DefectType.name.asc()).all()
+
+@app.post("/defect-types", response_model=DefectTypeOut, status_code=201)
+def create_defect_type(data: DefectTypeCreate, db: Session = Depends(get_db)):
+    name = data.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Name cannot be empty")
+    existing = db.query(DefectType).filter(DefectType.name == name).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Defect type already exists")
+    dt = DefectType(name=name)
+    db.add(dt)
+    db.commit()
+    db.refresh(dt)
+    return dt
+
+@app.delete("/defect-types/{dt_id}", status_code=204)
+def delete_defect_type(dt_id: int, db: Session = Depends(get_db)):
+    dt = db.query(DefectType).filter(DefectType.id == dt_id).first()
+    if not dt:
+        raise HTTPException(status_code=404, detail="Defect type not found")
+    db.delete(dt)
+    db.commit()
+    return
+
+
+# --- Work order defect endpoints ---
+
+@app.get("/work-orders/{wo_id}/defects", response_model=list[WorkOrderDefectOut])
+def get_wo_defects(wo_id: int, db: Session = Depends(get_db)):
+    defects = db.query(WorkOrderDefect).filter(WorkOrderDefect.work_order_id == wo_id).all()
+    result = []
+    for d in defects:
+        dt = db.query(DefectType).filter(DefectType.id == d.defect_type_id).first()
+        out = WorkOrderDefectOut(
+            id=d.id, work_order_id=d.work_order_id,
+            defect_type_id=d.defect_type_id,
+            defect_type_name=dt.name if dt else None,
+            quantity=d.quantity, created_at=d.created_at,
+        )
+        result.append(out)
+    return result
+
+@app.post("/work-orders/{wo_id}/defects", response_model=WorkOrderDefectOut, status_code=201)
+def add_wo_defect(wo_id: int, data: WorkOrderDefectCreate, db: Session = Depends(get_db)):
+    wo = db.query(WorkOrder).filter(WorkOrder.id == wo_id).first()
+    if not wo:
+        raise HTTPException(status_code=404, detail="Work order not found")
+    defect = WorkOrderDefect(
+        work_order_id=wo_id,
+        defect_type_id=data.defect_type_id,
+        quantity=data.quantity,
+    )
+    db.add(defect)
+    # Update total_defects on work order
+    existing_total = db.query(WorkOrderDefect).filter(WorkOrderDefect.work_order_id == wo_id).all()
+    wo.total_defects = sum(d.quantity for d in existing_total) + data.quantity
+    db.commit()
+    db.refresh(defect)
+    dt = db.query(DefectType).filter(DefectType.id == data.defect_type_id).first()
+    return WorkOrderDefectOut(
+        id=defect.id, work_order_id=defect.work_order_id,
+        defect_type_id=defect.defect_type_id,
+        defect_type_name=dt.name if dt else None,
+        quantity=defect.quantity, created_at=defect.created_at,
+    )
+
+@app.delete("/work-orders/{wo_id}/defects/{defect_id}", status_code=204)
+def delete_wo_defect(wo_id: int, defect_id: int, db: Session = Depends(get_db)):
+    defect = db.query(WorkOrderDefect).filter(
+        WorkOrderDefect.id == defect_id,
+        WorkOrderDefect.work_order_id == wo_id,
+    ).first()
+    if not defect:
+        raise HTTPException(status_code=404, detail="Defect not found")
+    db.delete(defect)
+    wo = db.query(WorkOrder).filter(WorkOrder.id == wo_id).first()
+    if wo:
+        remaining = db.query(WorkOrderDefect).filter(WorkOrderDefect.work_order_id == wo_id).all()
+        wo.total_defects = sum(d.quantity for d in remaining) - defect.quantity
+        if wo.total_defects < 0:
+            wo.total_defects = 0
+    db.commit()
+    return
+
+
+@app.put("/work-orders/{wo_id}/read", response_model=WorkOrderOut)
+def mark_work_order_read(wo_id: int, db: Session = Depends(get_db)):
+    wo = db.query(WorkOrder).filter(WorkOrder.id == wo_id).first()
+    if not wo:
+        raise HTTPException(status_code=404, detail="Work order not found")
+    wo.is_read = True
+    db.commit()
+    db.refresh(wo)
+    return wo

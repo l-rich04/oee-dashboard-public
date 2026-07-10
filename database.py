@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, Float, Boolean
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, Float, Boolean, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
@@ -47,7 +47,34 @@ class WorkOrder(Base):
     units_completed = Column(Integer, nullable=False)
     total_defects   = Column(Integer, nullable=False)
     week_start      = Column(String, nullable=False)
+    is_read         = Column(Boolean, default=False, nullable=False)
     created_at      = Column(DateTime, default=datetime.utcnow)
+
+
+class TruckType(Base):
+    __tablename__ = "truck_types"
+
+    id         = Column(Integer, primary_key=True, index=True)
+    name       = Column(String, unique=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class DefectType(Base):
+    __tablename__ = "defect_types"
+
+    id         = Column(Integer, primary_key=True, index=True)
+    name       = Column(String, unique=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class WorkOrderDefect(Base):
+    __tablename__ = "work_order_defects"
+
+    id             = Column(Integer, primary_key=True, index=True)
+    work_order_id  = Column(Integer, ForeignKey("work_orders.id"), nullable=False)
+    defect_type_id = Column(Integer, ForeignKey("defect_types.id"), nullable=False)
+    quantity       = Column(Integer, nullable=False, default=1)
+    created_at     = Column(DateTime, default=datetime.utcnow)
 
 
 class DowntimeLog(Base):
@@ -123,7 +150,7 @@ class IndirectLabor(Base):
     rework_hours      = Column(Float, nullable=False, default=0)
     notes             = Column(Text, nullable=True)
     created_at        = Column(DateTime, default=datetime.utcnow)
-    updated_at        = Column(DateTime, default=datetime.utcnow)
+    updated_at        = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 def get_db():
