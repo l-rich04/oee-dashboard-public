@@ -1,5 +1,6 @@
 import { Helmet } from "react-helmet-async";
 import { useEffect, useState, useRef } from "react";
+import * as XLSX from "xlsx";
 import { getIssues, getSummary, deleteIssue, getOEESummary, getForemen, markIssueRead, exportAll, getWorkOrders, markWorkOrderRead } from "../api/issues";
 import IssueStatusBadge from "../components/IssueStatusBadge";
 import IssueUpdatePanel from "../components/IssueUpdatePanel";
@@ -52,7 +53,7 @@ export default function SupervisorDashboard() {
   const [notifPermission, setNotifPermission] = useState(Notification.permission);
   const [exporting, setExporting]             = useState(false);
 
-  const knownIssueIds    = useRef(null);
+  const knownIssueIds     = useRef(null);
   const knownWorkOrderIds = useRef(null);
 
   useEffect(() => {
@@ -122,10 +123,12 @@ export default function SupervisorDashboard() {
   }, [authed]);
 
   async function handleExport(mode) {
-    setExporting(true);
-    try {
-      const data = await exportAll();
-      const XLSX = await import("https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs");
+  console.log("handleExport called", mode);
+  setExporting(true);
+  try {
+    console.log("fetching data...");
+    const data = await exportAll();
+    console.log("data received", data);
       const wb   = XLSX.utils.book_new();
       if (mode === "issues") {
         const issueRows = data.issues.map(i => ({
@@ -144,23 +147,40 @@ export default function SupervisorDashboard() {
       }
       if (mode === "oee") {
         const woRows = data.work_orders.map(wo => ({
-          "Work Order #": wo.work_order_num, "Truck Type": wo.truck_type,
-          "Units Completed": wo.units_completed, "Total Defects": wo.total_defects,
-          "DPU": wo.units_completed > 0 ? (wo.total_defects / wo.units_completed).toFixed(2) : 0,
-          "Week Start": wo.week_start, "Created At": wo.created_at,
+          "Work Order #":    wo.work_order_num,
+          "Truck Type":      wo.truck_type,
+          "Units Completed": wo.units_completed,
+          "Total Defects":   wo.total_defects,
+          "DPU":             wo.units_completed > 0 ? (wo.total_defects / wo.units_completed).toFixed(2) : 0,
+          "Week Start":      wo.week_start,
+          "Created At":      wo.created_at,
         }));
         XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(woRows), "Work Orders");
+        if (data.defect_breakdown && data.defect_breakdown.length > 0) {
+          const defectRows = data.defect_breakdown.map(d => ({
+            "Work Order #": d.work_order_num,
+            "Truck Type":   d.truck_type,
+            "Week Start":   d.week_start,
+            "Defect Type":  d.defect_type,
+            "Quantity":     d.quantity,
+          }));
+          XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(defectRows), "Defect Breakdown");
+        }
         const laborRows = data.labor_hours.map(r => ({
-          "Week Start": r.week_start, "Working Days": r.working_days,
-          "Total Labor Hours": r.total_labor_hours, "Indirect Hours": r.indirect_hours,
-          "Rework Hours": r.rework_hours,
-          "Availability %": r.total_labor_hours > 0 ? (((r.total_labor_hours - r.indirect_hours - r.rework_hours) / r.total_labor_hours) * 100).toFixed(1) : 0,
-          "Notes": r.notes ?? "",
+          "Week Start":        r.week_start,
+          "Working Days":      r.working_days,
+          "Total Labor Hours": r.total_labor_hours,
+          "Indirect Hours":    r.indirect_hours,
+          "Rework Hours":      r.rework_hours,
+          "Availability %":    r.total_labor_hours > 0 ? (((r.total_labor_hours - r.indirect_hours - r.rework_hours) / r.total_labor_hours) * 100).toFixed(1) : 0,
+          "Notes":             r.notes ?? "",
         }));
         XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(laborRows), "Labor Hours");
         const goalRows = data.goal_history.map(g => ({
-          "Effective Date": g.effective_date, "Annual DPU Goal": g.annual_dpu_goal,
-          "Quarterly DPU Goal": g.quarterly_dpu_goal, "Weekly Trucks Min": g.weekly_trucks_min,
+          "Effective Date":    g.effective_date,
+          "Annual DPU Goal":   g.annual_dpu_goal,
+          "Quarterly DPU Goal": g.quarterly_dpu_goal,
+          "Weekly Trucks Min": g.weekly_trucks_min,
           "Weekly Trucks Max": g.weekly_trucks_max,
         }));
         XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(goalRows), "Goal History");
@@ -295,16 +315,16 @@ export default function SupervisorDashboard() {
                   marginBottom: -1, display: "flex", alignItems: "center", gap: 6,
                 }}>
                   {tab === "issues" ? "Issues" : "OEE & Production"}
-{tab === "issues" && unreadCount > 0 && (
-  <span style={{ background: "#E24B4A", color: "#fff", fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 10, lineHeight: "16px" }}>
-    {unreadCount}
-  </span>
-)}
-{tab === "oee" && unreadWOCount > 0 && (
-  <span style={{ background: "#E24B4A", color: "#fff", fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 10, lineHeight: "16px" }}>
-    {unreadWOCount}
-  </span>
-)}
+                  {tab === "issues" && unreadCount > 0 && (
+                    <span style={{ background: "#E24B4A", color: "#fff", fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 10, lineHeight: "16px" }}>
+                      {unreadCount}
+                    </span>
+                  )}
+                  {tab === "oee" && unreadWOCount > 0 && (
+                    <span style={{ background: "#E24B4A", color: "#fff", fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 10, lineHeight: "16px" }}>
+                      {unreadWOCount}
+                    </span>
+                  )}
                 </button>
               ))}
             </div>

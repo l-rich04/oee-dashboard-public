@@ -321,3 +321,9 @@ export async function markWorkOrderRead(id) {
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
+
+export async function getAllDefectBreakdowns() {
+  const res = await fetch(`${BASE}/work-orders/defects/all`);
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
