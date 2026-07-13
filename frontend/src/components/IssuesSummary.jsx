@@ -90,19 +90,19 @@ export default function IssuesSummary({ issues, period, onPeriodChange }) {
       {/* Metric cards */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 16 }}>
         <div style={{ background: "#fafafa", border: "0.5px solid #eee", borderRadius: 8, padding: "14px 16px" }}>
-          <p style={{ fontSize: 11, color: "#888", margin: "0 0 4px" }}>Total open</p>
+          <p style={{ fontSize: 11, color: "#888", margin: "0 0 4px" }}>Total Open</p>
           <p style={{ fontSize: 22, fontWeight: 500, margin: "0 0 4px", color: openIssues.length > 0 ? "#A32D2D" : "#1D9E75" }}>
             {openIssues.length}
           </p>
-          <p style={{ fontSize: 11, color: "#aaa", margin: 0 }}>Active issues</p>
+          <p style={{ fontSize: 11, color: "#aaa", margin: 0 }}>Active Issues</p>
         </div>
 
         <div style={{ background: "#fafafa", border: "0.5px solid #eee", borderRadius: 8, padding: "14px 16px" }}>
-          <p style={{ fontSize: 11, color: "#888", margin: "0 0 4px" }}>In progress</p>
+          <p style={{ fontSize: 11, color: "#888", margin: "0 0 4px" }}>In Progress</p>
           <p style={{ fontSize: 22, fontWeight: 500, margin: "0 0 4px", color: inProgress.length > 0 ? "#854F0B" : "#1D9E75" }}>
             {inProgress.length}
           </p>
-          <p style={{ fontSize: 11, color: "#aaa", margin: 0 }}>Being worked on</p>
+          <p style={{ fontSize: 11, color: "#aaa", margin: 0 }}>Being Worked On</p>
         </div>
 
         <div style={{ background: "#fafafa", border: "0.5px solid #eee", borderRadius: 8, padding: "14px 16px" }}>
@@ -110,7 +110,7 @@ export default function IssuesSummary({ issues, period, onPeriodChange }) {
           <p style={{ fontSize: 22, fontWeight: 500, margin: "0 0 4px", color: "#333" }}>
             {newThisPeriod.length}
           </p>
-          <p style={{ fontSize: 11, color: "#aaa", margin: 0 }}>Opened this period</p>
+          <p style={{ fontSize: 11, color: "#aaa", margin: 0 }}>Opened This Period</p>
         </div>
 
         <div style={{ background: "#fafafa", border: "0.5px solid #eee", borderRadius: 8, padding: "14px 16px" }}>
@@ -118,7 +118,7 @@ export default function IssuesSummary({ issues, period, onPeriodChange }) {
           <p style={{ fontSize: 22, fontWeight: 500, margin: "0 0 4px", color: "#1D9E75" }}>
             {solvedThisPeriod.length}
           </p>
-          <p style={{ fontSize: 11, color: "#aaa", margin: 0 }}>Closed this period</p>
+          <p style={{ fontSize: 11, color: "#aaa", margin: 0 }}>Closed This Period</p>
         </div>
       </div>
 
@@ -126,9 +126,9 @@ export default function IssuesSummary({ issues, period, onPeriodChange }) {
       <div style={{ marginBottom: 16 }}>
 
         <div style={{ background: "#fff", border: "0.5px solid #eee", borderRadius: 12, padding: "16px 18px" }}>
-          <p style={{ fontSize: 12, fontWeight: 500, color: "#555", margin: "0 0 12px" }}>Open issues by foreman</p>
+          <p style={{ fontSize: 12, fontWeight: 500, color: "#555", margin: "0 0 12px" }}>Open Issues by Foreman</p>
           {foremanCounts.length === 0 ? (
-            <p style={{ fontSize: 13, color: "#aaa", textAlign: "center", padding: "16px 0" }}>No open issues</p>
+            <p style={{ fontSize: 13, color: "#aaa", textAlign: "center", padding: "16px 0" }}>No Open Issues</p>
           ) : (
             foremanCounts.map(f => (
               <div key={f.name} style={{ marginBottom: 10 }}>
@@ -137,7 +137,7 @@ export default function IssuesSummary({ issues, period, onPeriodChange }) {
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     {f.inProg > 0 && (
                       <span style={{ fontSize: 10, background: "#FAEEDA", color: "#854F0B", padding: "1px 6px", borderRadius: 8, fontWeight: 500 }}>
-                        {f.inProg} in progress
+                        {f.inProg} In Progress
                       </span>
                     )}
                     <span style={{ fontSize: 11, color: "#888" }}>{f.total}</span>
