@@ -1,4 +1,7 @@
 import { useMemo } from "react";
+import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
+
+const CHART_COLORS = ["#1D9E75", "#378ADD", "#E24B4A", "#854F0B", "#533AB7", "#0F6E56", "#A32D2D", "#0C447C"];
 
 function titleCase(str) {
   return str.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
@@ -46,19 +49,20 @@ export default function IssuesSummary({ issues, period, onPeriodChange }) {
       .slice(0, 6);
   }, [openIssues]);
 
-  const categoryCounts = useMemo(() => {
+  // Full category breakdown, used for the pie chart below.
+  const allCategoryCounts = useMemo(() => {
     const counts = {};
     periodIssues.forEach(i => {
       counts[i.category] = (counts[i.category] ?? 0) + 1;
     });
     return Object.entries(counts)
-      .map(([name, count]) => ({ name, count }))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 5);
+      .map(([name, value]) => ({ name: titleCase(name), value }))
+      .sort((a, b) => b.value - a.value);
   }, [periodIssues]);
 
-  const maxForeman  = foremanCounts.length  > 0 ? foremanCounts[0].total   : 1;
-  const maxCategory = categoryCounts.length > 0 ? categoryCounts[0].count  : 1;
+  const totalPeriodIssues = allCategoryCounts.reduce((sum, c) => sum + c.value, 0);
+
+  const maxForeman = foremanCounts.length > 0 ? foremanCounts[0].total : 1;
 
   const btnStyle = (active) => ({
     padding: "4px 10px", fontSize: 11, fontWeight: 500,
@@ -119,7 +123,7 @@ export default function IssuesSummary({ issues, period, onPeriodChange }) {
       </div>
 
       {/* Foreman breakdown + top categories */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+      <div style={{ marginBottom: 16 }}>
 
         <div style={{ background: "#fff", border: "0.5px solid #eee", borderRadius: 12, padding: "16px 18px" }}>
           <p style={{ fontSize: 12, fontWeight: 500, color: "#555", margin: "0 0 12px" }}>Open issues by foreman</p>
@@ -147,26 +151,48 @@ export default function IssuesSummary({ issues, period, onPeriodChange }) {
           )}
         </div>
 
-        <div style={{ background: "#fff", border: "0.5px solid #eee", borderRadius: 12, padding: "16px 18px" }}>
-          <p style={{ fontSize: 12, fontWeight: 500, color: "#555", margin: "0 0 12px" }}>Top categories — {periodLabel.toLowerCase()}</p>
-          {categoryCounts.length === 0 ? (
-            <p style={{ fontSize: 13, color: "#aaa", textAlign: "center", padding: "16px 0" }}>No issues this period</p>
-          ) : (
-            categoryCounts.map(c => (
-              <div key={c.name} style={{ marginBottom: 10 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>
-                  <span style={{ fontSize: 12, color: "#333" }}>{titleCase(c.name)}</span>
-                  <span style={{ fontSize: 11, color: "#888" }}>{c.count}</span>
-                </div>
-                <div style={{ height: 6, background: "#f0f0f0", borderRadius: 4, overflow: "hidden" }}>
-                  <div style={{ height: "100%", width: `${Math.round(c.count / maxCategory * 100)}%`, background: "#378ADD", borderRadius: 4 }} />
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-
       </div>
+
+      {/* Category Analysis — pie chart only */}
+      <div style={{ border: "0.5px solid #eee", borderRadius: 12, padding: 20 }}>
+        <p style={{ fontSize: 14, fontWeight: 500, color: "#333", margin: "0 0 16px" }}>
+          Category Analysis
+          {totalPeriodIssues > 0 && (
+            <span style={{ fontSize: 12, color: "#aaa", fontWeight: 400, marginLeft: 8 }}>
+              ({totalPeriodIssues} total issue{totalPeriodIssues !== 1 ? "s" : ""})
+            </span>
+          )}
+        </p>
+
+        {allCategoryCounts.length === 0 ? (
+          <p style={{ textAlign: "center", color: "#aaa", fontSize: 13, padding: "40px 0" }}>
+            No issues for this period.
+          </p>
+        ) : (
+          <div style={{ maxWidth: 420, margin: "0 auto" }}>
+            <ResponsiveContainer width="100%" height={240}>
+              <PieChart>
+                <Pie data={allCategoryCounts} cx="50%" cy="50%" outerRadius={90} dataKey="value" label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`} labelLine={false} fontSize={11}>
+                  {allCategoryCounts.map((entry, index) => (
+                    <Cell key={entry.name} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip formatter={(value) => [value, "Issues"]} />
+              </PieChart>
+            </ResponsiveContainer>
+            <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: "6px 16px", marginTop: 8 }}>
+              {allCategoryCounts.map((entry, index) => (
+                <div key={entry.name} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}>
+                  <div style={{ width: 10, height: 10, borderRadius: 2, background: CHART_COLORS[index % CHART_COLORS.length], flexShrink: 0 }} />
+                  <span style={{ color: "#555" }}>{entry.name}</span>
+                  <span style={{ color: "#888" }}>({entry.value})</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
     </div>
   );
 }
