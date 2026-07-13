@@ -24,6 +24,15 @@ function formatWeek(dateStr) {
   return d.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
 }
 
+function formatWeekRange(weekStart) {
+  const start = new Date(weekStart + "T12:00:00");
+  const end = new Date(start);
+  end.setDate(end.getDate() + 4); // Monday through Friday
+  const startStr = start.toLocaleDateString([], { month: "numeric", day: "numeric" });
+  const endStr = end.toLocaleDateString([], { month: "numeric", day: "numeric", year: "numeric" });
+  return `${startStr} - ${endStr}`;
+}
+
 function getDateRange(period) {
   const today = new Date();
   if (period === "week") {
@@ -275,6 +284,66 @@ export default function WorkOrderPanel({ onSaved, unreadIds = new Set(), onMarkR
     load();
     loadAllDefects();
     if (onSaved) onSaved();
+  }
+
+  function handlePrintWeek(week, wos) {
+    const totalDefects = wos.reduce((sum, wo) => sum + wo.total_defects, 0);
+    const dpu = wos.length > 0 ? (totalDefects / wos.length).toFixed(2) : "0.00";
+
+    const rowsHtml = wos.map(wo => `
+      <tr>
+        <td>${wo.work_order_num}</td>
+        <td>${wo.total_defects}</td>
+      </tr>
+    `).join("");
+
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Weekly Defect Sheet - ${formatWeek(week)}</title>
+          <style>
+            @page { margin: 0.6in; }
+            body { font-family: Arial, Helvetica, sans-serif; color: #111; margin: 0; }
+            h1 { font-size: 16px; margin: 0 0 18px; }
+            table { width: 100%; border-collapse: collapse; margin-bottom: 24px; }
+            th, td { border: 1px solid #333; padding: 6px 12px; font-size: 13px; text-align: left; }
+            th { background: #f0f0f0; }
+            td:last-child, th:last-child { text-align: center; width: 160px; }
+            .dpu { font-size: 15px; font-weight: bold; margin-top: 8px; }
+          </style>
+        </head>
+        <body>
+          <h1>WEEK: ${formatWeekRange(week)}</h1>
+          <table>
+            <thead>
+              <tr><th>WORK ORDER NUMBER</th><th>NUMBER OF DEFECTS</th></tr>
+            </thead>
+            <tbody>
+              ${rowsHtml}
+            </tbody>
+          </table>
+          <p class="dpu">DPU&nbsp;&nbsp;${dpu}</p>
+        </body>
+      </html>
+    `;
+
+    const printWindow = window.open("", "_blank", "width=800,height=900");
+    if (!printWindow) {
+      alert("Please allow popups for this site to print the weekly defect sheet.");
+      return;
+    }
+    printWindow.document.open();
+    printWindow.document.write(html);
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.onload = () => {
+      printWindow.print();
+    };
+    // Fallback in case onload doesn't fire (some browsers with document.write)
+    setTimeout(() => {
+      try { printWindow.print(); } catch (e) { /* window may already be closed */ }
+    }, 400);
   }
 
   function startEdit(wo) {
@@ -708,6 +777,7 @@ export default function WorkOrderPanel({ onSaved, unreadIds = new Set(), onMarkR
                     <span style={{ fontSize: 12, color: wos.length >= 14 ? "#1D9E75" : "#A32D2D", fontWeight: 500 }}>{wos.length} trucks</span>
                     <span style={{ fontSize: 12, color: "#888" }}>{weekDefects} defects</span>
                     <span style={{ fontSize: 13, fontWeight: 500, color: dpuColor2 }}>{dpuLabel} DPU: {weekDpu.toFixed(2)}</span>
+                    <button onClick={() => handlePrintWeek(week, wos)} title="Print weekly defect sheet" style={{ width: 22, height: 22, border: "0.5px solid #ddd", borderRadius: 6, background: "#fff", cursor: "pointer", fontSize: 12, color: "#555", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center" }}>🖨</button>
                     <button onClick={() => setConfirmWeek(week)} style={{ width: 22, height: 22, border: "0.5px solid #ddd", borderRadius: 6, background: "#fff", cursor: "pointer", fontSize: 12, color: "#aaa", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
                     <span onClick={() => toggleWeek(week, wos)} style={{ fontSize: 12, color: "#555", fontWeight: 500, background: "#eee", borderRadius: 4, padding: "2px 8px", cursor: "pointer" }}>
                       {isOpen ? "▲ Hide" : "▼ Show"}

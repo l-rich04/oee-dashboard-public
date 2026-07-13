@@ -7,7 +7,7 @@ import { getGoalHistory } from "../api/issues";
 
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 
-function MetricCard({ label, value, sub, color }) {
+function MetricCard({ label, value, sub, color, prevLabel, prevValue }) {
   return (
     <div style={{
       background: "#fafafa", borderRadius: 8,
@@ -15,7 +15,16 @@ function MetricCard({ label, value, sub, color }) {
     }}>
       <p style={{ fontSize: 11, color: "#888", margin: "0 0 4px" }}>{label}</p>
       <p style={{ fontSize: 22, fontWeight: 500, margin: "0 0 4px", color: color ?? "#1a1a1a" }}>{value}</p>
-      {sub && <p style={{ fontSize: 11, color: "#aaa", margin: 0 }}>{sub}</p>}
+      {prevValue != null ? (
+        <div style={{ display: "flex", justifyContent: "space-between" }}>
+          {sub && <p style={{ fontSize: 11, color: "#aaa", margin: 0 }}>{sub}</p>}
+          <p style={{ fontSize: 11, margin: 0, color: "#888" }}>
+            {prevLabel ?? "Prev"}: <span style={{ fontWeight: 500, color: "#555" }}>{prevValue}</span>
+          </p>
+        </div>
+      ) : (
+        sub && <p style={{ fontSize: 11, color: "#aaa", margin: 0 }}>{sub}</p>
+      )}
     </div>
   );
 }
@@ -190,6 +199,46 @@ export default function OEEMetrics({ summary }) {
     if (period === "week") {
       const last = allHistory[allHistory.length - 1]?.dpu ?? 0;
       const prev = allHistory[allHistory.length - 2]?.dpu ?? null;
+
+      // Compute Availability / Performance / Quality / OEE for a single given week,
+      // using the same formulas as the multi-week period averages below,
+      // so last week and the week before it are calculated the same way.
+      function computeWeekMetrics(weekStr) {
+        const entry = allHistory.find(w => w.week === weekStr);
+        if (!entry) return null;
+        const laborEntry   = indirectHistory.find(r => r.week_start === weekStr);
+        const weeklyTarget = (goals.weekly_trucks_min + goals.weekly_trucks_max) / 2;
+        const days         = laborEntry?.working_days ?? 5;
+        const adjTarget    = weeklyTarget * (days / 5);
+        const performance  = adjTarget > 0 ? (entry.trucks / adjTarget) * 100 : 0;
+        const availability = laborEntry && laborEntry.total_labor_hours > 0
+          ? ((laborEntry.total_labor_hours - laborEntry.indirect_hours - laborEntry.rework_hours) / laborEntry.total_labor_hours) * 100
+          : 0;
+        const quality = entry.dpu === 0 ? 0
+          : entry.dpu <= periodGoal.quarterly_dpu_goal ? 100
+          : (periodGoal.quarterly_dpu_goal / entry.dpu) * 100;
+        const oee = (availability / 100) * (performance / 100) * (quality / 100) * 100;
+        return { trucks: entry.trucks, availability, performance, quality, oee };
+      }
+
+      const currWeekStr = allHistory[allHistory.length - 1]?.week ?? null;
+      const prevWeekStr = allHistory[allHistory.length - 2]?.week ?? null;
+      const currMetrics = currWeekStr ? computeWeekMetrics(currWeekStr) : null;
+      const prevMetrics = prevWeekStr ? computeWeekMetrics(prevWeekStr) : null;
+
+      function trendArrow(curr, prevVal) {
+        if (curr == null || prevVal == null) return { arrow: "", color: "#888" };
+        if (curr > prevVal) return { arrow: "↑ ", color: "#1D9E75" };
+        if (curr < prevVal) return { arrow: "↓ ", color: "#A32D2D" };
+        return { arrow: "→ ", color: "#888" };
+      }
+
+      const oeeTrend    = trendArrow(currMetrics?.oee, prevMetrics?.oee);
+      const availTrend  = trendArrow(currMetrics?.availability, prevMetrics?.availability);
+      const perfTrend   = trendArrow(currMetrics?.performance, prevMetrics?.performance);
+      const qualTrend   = trendArrow(currMetrics?.quality, prevMetrics?.quality);
+      const trucksTrend = trendArrow(currMetrics?.trucks, prevMetrics?.trucks);
+
       return {
         label:        `Last Week (${getLastWeekStart()})`,
         oee:          summary.oee,
@@ -200,6 +249,17 @@ export default function OEEMetrics({ summary }) {
         dpu:          summary.avg_dpu_this_week,
         dpuArrow:     prev === null ? "" : last < prev ? "↓ " : last > prev ? "↑ " : "→ ",
         dpuColor:     prev === null ? "#888" : last < prev ? "#1D9E75" : last > prev ? "#A32D2D" : "#888",
+        oeeArrow:        oeeTrend.arrow,    oeeTrendColor:    oeeTrend.color,
+        availArrow:      availTrend.arrow,  availTrendColor:  availTrend.color,
+        perfArrow:       perfTrend.arrow,   perfTrendColor:   perfTrend.color,
+        qualArrow:       qualTrend.arrow,   qualTrendColor:   qualTrend.color,
+        trucksArrow:     trucksTrend.arrow, trucksTrendColor: trucksTrend.color,
+        oeePrev:      prevMetrics ? Math.round(prevMetrics.oee * 10) / 10 : null,
+        availPrev:    prevMetrics ? Math.round(prevMetrics.availability * 10) / 10 : null,
+        perfPrev:     prevMetrics ? Math.round(prevMetrics.performance * 10) / 10 : null,
+        qualPrev:     prevMetrics ? Math.round(prevMetrics.quality * 10) / 10 : null,
+        trucksPrev:   prevMetrics ? Math.round(prevMetrics.trucks * 10) / 10 : null,
+        prevLabel:    "Prev WK",
         trucksLabel:  "Trucks Last Week",
         dpuLabel:     "DPU Last Week",
         trucksSub:    `Target: ${goals.weekly_trucks_min}–${goals.weekly_trucks_max}`,
@@ -207,67 +267,107 @@ export default function OEEMetrics({ summary }) {
       };
     }
 
-    const filterWeeks = (weeks) => weeks.filter(w => {
-      const d = new Date(w.week);
-      const yr = d.getFullYear();
-      const mo = d.getMonth();
-      if (period === "month")   return yr === cardYear && mo === cardSub;
-      if (period === "quarter") return yr === cardYear && Math.floor(mo / 3) === cardSub;
-      if (period === "ytd")     return yr === cardYear;
-      return false;
-    });
+    // Compute Availability / Performance / Quality / OEE / Trucks / DPU averaged
+    // over all weeks that fall in a given month / quarter / year.
+    function computePeriodAverages(periodType, year, sub) {
+      const filterWeeks = (weeks) => weeks.filter(w => {
+        const d = new Date(w.week);
+        const yr = d.getFullYear();
+        const mo = d.getMonth();
+        if (periodType === "month")   return yr === year && mo === sub;
+        if (periodType === "quarter") return yr === year && Math.floor(mo / 3) === sub;
+        if (periodType === "ytd")     return yr === year;
+        return false;
+      });
+      const filterIndirect = (logs) => logs.filter(r => {
+        const d = new Date(r.week_start);
+        const yr = d.getFullYear();
+        const mo = d.getMonth();
+        if (periodType === "month")   return yr === year && mo === sub;
+        if (periodType === "quarter") return yr === year && Math.floor(mo / 3) === sub;
+        if (periodType === "ytd")     return yr === year;
+        return false;
+      });
 
-    const filterIndirect = (logs) => logs.filter(r => {
-      const d = new Date(r.week_start);
-      const yr = d.getFullYear();
-      const mo = d.getMonth();
-      if (period === "month")   return yr === cardYear && mo === cardSub;
-      if (period === "quarter") return yr === cardYear && Math.floor(mo / 3) === cardSub;
-      if (period === "ytd")     return yr === cardYear;
-      return false;
-    });
+      const periodWeeks    = filterWeeks(allHistory);
+      const periodIndirect = filterIndirect(indirectHistory);
+      if (periodWeeks.length === 0) return null;
 
-    const periodWeeks    = filterWeeks(allHistory);
-    const periodIndirect = filterIndirect(indirectHistory);
+      const totalTrucks  = periodWeeks.reduce((s, w) => s + w.trucks, 0);
+      const totalDefects = periodWeeks.reduce((s, w) => s + w.dpu * w.trucks, 0);
+      const avgDpu        = totalTrucks > 0 ? totalDefects / totalTrucks : 0;
+      const avgTrucksRaw   = totalTrucks / periodWeeks.length;
+      const weeklyTarget  = (goals.weekly_trucks_min + goals.weekly_trucks_max) / 2;
 
-    const totalTrucks  = periodWeeks.reduce((s, w) => s + w.trucks, 0);
-    const totalDefects = periodWeeks.reduce((s, w) => s + w.dpu * w.trucks, 0);
-    const avgDpu       = totalTrucks > 0 ? Math.round((totalDefects / totalTrucks) * 100) / 100 : 0;
-    const avgTrucks    = periodWeeks.length > 0 ? Math.round((totalTrucks / periodWeeks.length) * 10) / 10 : 0;
-    const weeklyTarget = (goals.weekly_trucks_min + goals.weekly_trucks_max) / 2;
+      const perfByWeek = periodWeeks.map(w => {
+        const laborEntry = periodIndirect.find(r => r.week_start === w.week);
+        const days       = laborEntry?.working_days ?? 5;
+        const adjusted   = weeklyTarget * (days / 5);
+        return adjusted > 0 ? (w.trucks / adjusted) * 100 : 0;
+      });
+      const avgPerf = perfByWeek.length > 0 ? perfByWeek.reduce((a, b) => a + b, 0) / perfByWeek.length : 0;
 
-    // Performance per week adjusted for working days then averaged
-    const perfByWeek = periodWeeks.map(w => {
-      const laborEntry = periodIndirect.find(r => r.week_start === w.week);
-      const days       = laborEntry?.working_days ?? 5;
-      const adjusted   = weeklyTarget * (days / 5);
-      return adjusted > 0 ? (w.trucks / adjusted) * 100 : 0;
-    });
-    const avgPerf = perfByWeek.length > 0
-      ? Math.round((perfByWeek.reduce((a, b) => a + b, 0) / perfByWeek.length) * 10) / 10
-      : 0;
-
-    const avgAvail = periodIndirect.length > 0
-      ? Math.round(
-          periodIndirect.reduce((s, r) => {
+      const avgAvail = periodIndirect.length > 0
+        ? periodIndirect.reduce((s, r) => {
             const avail = r.total_labor_hours > 0
               ? ((r.total_labor_hours - r.indirect_hours - r.rework_hours) / r.total_labor_hours) * 100
               : 0;
             return s + avail;
-          }, 0) / periodIndirect.length * 10
-        ) / 10
-      : 0;
+          }, 0) / periodIndirect.length
+        : 0;
 
-    const avgQuality = avgDpu === 0 ? 0
-      : avgDpu <= periodGoal.quarterly_dpu_goal ? 100
-      : Math.round(periodGoal.quarterly_dpu_goal / avgDpu * 100 * 10) / 10;
+      const avgQuality = avgDpu === 0 ? 0
+        : avgDpu <= periodGoal.quarterly_dpu_goal ? 100
+        : periodGoal.quarterly_dpu_goal / avgDpu * 100;
 
-    const avgOee = Math.round(avgAvail / 100 * avgPerf / 100 * avgQuality / 100 * 100 * 10) / 10;
+      const avgOee = avgAvail / 100 * avgPerf / 100 * avgQuality / 100 * 100;
+
+      return { oee: avgOee, availability: avgAvail, performance: avgPerf, quality: avgQuality, trucks: avgTrucksRaw, dpu: avgDpu };
+    }
+
+    function trendArrow(curr, prevVal) {
+      if (curr == null || prevVal == null) return { arrow: "", color: "#888" };
+      if (curr > prevVal) return { arrow: "↑ ", color: "#1D9E75" };
+      if (curr < prevVal) return { arrow: "↓ ", color: "#A32D2D" };
+      return { arrow: "→ ", color: "#888" };
+    }
+
+    function getPrevPeriodKey(periodType, year, sub) {
+      if (periodType === "month") {
+        let m = sub - 1, y = year;
+        if (m < 0) { m = 11; y -= 1; }
+        return { year: y, sub: m };
+      }
+      if (periodType === "quarter") {
+        let q = sub - 1, y = year;
+        if (q < 0) { q = 3; y -= 1; }
+        return { year: y, sub: q };
+      }
+      // ytd — compare to the prior year
+      return { year: year - 1, sub: 0 };
+    }
+
+    const current  = computePeriodAverages(period, cardYear, cardSub);
+    const prevKey  = getPrevPeriodKey(period, cardYear, cardSub);
+    const previous = computePeriodAverages(period, prevKey.year, prevKey.sub);
+
+    const oeeTrend    = trendArrow(current?.oee, previous?.oee);
+    const availTrend  = trendArrow(current?.availability, previous?.availability);
+    const perfTrend   = trendArrow(current?.performance, previous?.performance);
+    const qualTrend   = trendArrow(current?.quality, previous?.quality);
+    const trucksTrend = trendArrow(current?.trucks, previous?.trucks);
+
+    const avgDpu    = current ? Math.round(current.dpu * 100) / 100 : 0;
+    const avgTrucks = current ? Math.round(current.trucks * 10) / 10 : 0;
+    const avgPerf   = current ? Math.round(current.performance * 10) / 10 : 0;
+    const avgAvail  = current ? Math.round(current.availability * 10) / 10 : 0;
+    const avgQuality = current ? Math.round(current.quality * 10) / 10 : 0;
+    const avgOee    = current ? Math.round(current.oee * 10) / 10 : 0;
 
     const periodLabels = {
       month:   `${MONTHS[cardSub]} ${cardYear}`,
       quarter: `Q${cardSub + 1} ${cardYear}`,
-      ytd:     `Full year ${cardYear}`,
+      ytd:     `Full Year ${cardYear}`,
     };
 
     return {
@@ -280,6 +380,17 @@ export default function OEEMetrics({ summary }) {
       dpu:          avgDpu,
       dpuArrow:     "",
       dpuColor:     avgDpu === 0 ? "#aaa" : avgDpu <= periodGoal.quarterly_dpu_goal ? "#1D9E75" : "#A32D2D",
+      oeeArrow:        oeeTrend.arrow,    oeeTrendColor:    oeeTrend.color,
+      availArrow:      availTrend.arrow,  availTrendColor:  availTrend.color,
+      perfArrow:       perfTrend.arrow,   perfTrendColor:   perfTrend.color,
+      qualArrow:       qualTrend.arrow,   qualTrendColor:   qualTrend.color,
+      trucksArrow:     trucksTrend.arrow, trucksTrendColor: trucksTrend.color,
+      oeePrev:      previous ? Math.round(previous.oee * 10) / 10 : null,
+      availPrev:    previous ? Math.round(previous.availability * 10) / 10 : null,
+      perfPrev:     previous ? Math.round(previous.performance * 10) / 10 : null,
+      qualPrev:     previous ? Math.round(previous.quality * 10) / 10 : null,
+      trucksPrev:   previous ? Math.round(previous.trucks * 10) / 10 : null,
+      prevLabel:    period === "month" ? "Last MO" : period === "quarter" ? "Last Q" : "Last YR",
       trucksLabel:  "Avg Trucks / Week",
       dpuLabel:     "Avg DPU",
       trucksSub:    `Target: ${goals.weekly_trucks_min}–${goals.weekly_trucks_max}`,
@@ -287,11 +398,11 @@ export default function OEEMetrics({ summary }) {
     };
   }, [period, summary, allHistory, indirectHistory, goals, cardYear, cardSub, periodGoal]);
 
-  const oeeColor    = periodData.oee >= 85 ? "#1D9E75" : periodData.oee >= 60 ? "#854F0B" : "#A32D2D";
-  const availColor  = periodData.availability >= 85 ? "#1D9E75" : "#854F0B";
-  const perfColor   = periodData.performance >= 85 ? "#1D9E75" : "#854F0B";
-  const qualColor   = periodData.quality >= 85 ? "#1D9E75" : "#854F0B";
-  const trucksColor = periodData.trucks >= goals.weekly_trucks_min ? "#1D9E75" : "#A32D2D";
+  const oeeColor    = periodData.oeeArrow    ? periodData.oeeTrendColor    : (periodData.oee >= 85 ? "#1D9E75" : periodData.oee >= 60 ? "#854F0B" : "#A32D2D");
+  const availColor  = periodData.availArrow  ? periodData.availTrendColor  : (periodData.availability >= 85 ? "#1D9E75" : "#854F0B");
+  const perfColor   = periodData.perfArrow   ? periodData.perfTrendColor   : (periodData.performance >= 85 ? "#1D9E75" : "#854F0B");
+  const qualColor   = periodData.qualArrow   ? periodData.qualTrendColor   : (periodData.quality >= 85 ? "#1D9E75" : "#854F0B");
+  const trucksColor = periodData.trucksArrow ? periodData.trucksTrendColor : (periodData.trucks >= goals.weekly_trucks_min ? "#1D9E75" : "#A32D2D");
 
   const btnStyle = (active) => ({
     padding: "5px 12px", fontSize: 12, fontWeight: 500,
@@ -355,10 +466,10 @@ export default function OEEMetrics({ summary }) {
       <p style={{ fontSize: 11, color: "#aaa", margin: "0 0 14px" }}>{periodData.label}</p>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 10 }}>
-        <MetricCard label="Overall Efficiency"  value={`${periodData.oee}%`}          sub={period === "week" ? "Last Week" : "Period AVG"} color={oeeColor} />
-        <MetricCard label="Availability" value={`${periodData.availability}%`} sub="Downtime / Total Labor Hours"                   color={availColor} />
-        <MetricCard label="Performance"  value={`${periodData.performance}%`}  sub="Actual vs Target"                               color={perfColor} />
-        <MetricCard label="Quality"      value={`${periodData.quality}%`}      sub="Goal / Actual DPU"                              color={qualColor} />
+        <MetricCard label="Overall Efficiency"  value={`${periodData.oeeArrow ?? ""}${periodData.oee}%`}          sub={period === "week" ? "Last Week" : "Period AVG"} color={oeeColor} prevLabel={periodData.prevLabel} prevValue={periodData.oeePrev != null ? `${periodData.oeePrev}%` : null} />
+        <MetricCard label="Availability" value={`${periodData.availArrow ?? ""}${periodData.availability}%`} sub="Downtime / Total Labor Hours"                   color={availColor} prevLabel={periodData.prevLabel} prevValue={periodData.availPrev != null ? `${periodData.availPrev}%` : null} />
+        <MetricCard label="Performance"  value={`${periodData.perfArrow ?? ""}${periodData.performance}%`}  sub="Actual vs Target"                               color={perfColor} prevLabel={periodData.prevLabel} prevValue={periodData.perfPrev != null ? `${periodData.perfPrev}%` : null} />
+        <MetricCard label="Quality"      value={`${periodData.qualArrow ?? ""}${periodData.quality}%`}      sub="Goal / Actual DPU"                              color={qualColor} prevLabel={periodData.prevLabel} prevValue={periodData.qualPrev != null ? `${periodData.qualPrev}%` : null} />
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 24 }}>
@@ -404,9 +515,16 @@ export default function OEEMetrics({ summary }) {
         <div style={{ background: "#fafafa", borderRadius: 8, padding: "14px 16px", border: "0.5px solid #eee" }}>
           <p style={{ fontSize: 11, color: "#888", margin: "0 0 4px" }}>{periodData.trucksLabel}</p>
           <p style={{ fontSize: 22, fontWeight: 500, margin: "0 0 4px", color: trucksColor }}>
-            {periodData.trucks}
+            {periodData.trucksArrow ?? ""}{periodData.trucks}
           </p>
-          <p style={{ fontSize: 11, color: "#aaa", margin: 0 }}>{periodData.trucksSub}</p>
+          <div style={{ display: "flex", justifyContent: "space-between" }}>
+            <p style={{ fontSize: 11, color: "#aaa", margin: 0 }}>{periodData.trucksSub}</p>
+            {periodData.trucksPrev != null && (
+              <p style={{ fontSize: 11, margin: 0, color: "#888" }}>
+                {periodData.prevLabel}: <span style={{ fontWeight: 500, color: "#555" }}>{periodData.trucksPrev}</span>
+              </p>
+            )}
+          </div>
         </div>
 
         <div style={{ background: "#fafafa", borderRadius: 8, padding: "14px 16px", border: "0.5px solid #eee" }}>
@@ -492,28 +610,30 @@ export default function OEEMetrics({ summary }) {
             </ResponsiveContainer>
 
             <div style={{ marginTop: 12, borderTop: "0.5px solid #f0f0f0", paddingTop: 10 }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-                <thead>
-                  <tr style={{ borderBottom: "0.5px solid #f0f0f0" }}>
-                    <th style={{ padding: "4px 8px", fontWeight: 500, color: "#888", textAlign: "left" }}>Week</th>
-                    <th style={{ padding: "4px 8px", fontWeight: 500, color: "#888", textAlign: "right" }}>Trucks</th>
-                    <th style={{ padding: "4px 8px", fontWeight: 500, color: "#888", textAlign: "right" }}>DPU</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {[...filteredHistory].reverse().map((w) => {
-                    const color = w.trend === "down" ? "#1D9E75" : w.trend === "up" ? "#A32D2D" : "#888";
-                    const arrow = w.trend === "down" ? "↓" : w.trend === "up" ? "↑" : w.trend === "same" ? "→" : "";
-                    return (
-                      <tr key={w.week} style={{ borderBottom: "0.5px solid #f5f5f5" }}>
-                        <td style={{ padding: "5px 8px", color: "#555" }}>{w.week}</td>
-                        <td style={{ padding: "5px 8px", textAlign: "right", color: w.trucks >= 14 ? "#1D9E75" : "#A32D2D", fontWeight: 500 }}>{w.trucks}</td>
-                        <td style={{ padding: "5px 8px", textAlign: "right", fontWeight: 500, color }}>{arrow} {w.dpu}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+              <div style={{ maxHeight: 320, overflowY: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                  <thead>
+                    <tr style={{ borderBottom: "0.5px solid #f0f0f0" }}>
+                      <th style={{ padding: "4px 8px", fontWeight: 500, color: "#888", textAlign: "left", background: "#fff", position: "sticky", top: 0 }}>Week</th>
+                      <th style={{ padding: "4px 8px", fontWeight: 500, color: "#888", textAlign: "right", background: "#fff", position: "sticky", top: 0 }}>Trucks</th>
+                      <th style={{ padding: "4px 8px", fontWeight: 500, color: "#888", textAlign: "right", background: "#fff", position: "sticky", top: 0 }}>DPU</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...filteredHistory].reverse().map((w) => {
+                      const color = w.trend === "down" ? "#1D9E75" : w.trend === "up" ? "#A32D2D" : "#888";
+                      const arrow = w.trend === "down" ? "↓" : w.trend === "up" ? "↑" : w.trend === "same" ? "→" : "";
+                      return (
+                        <tr key={w.week} style={{ borderBottom: "0.5px solid #f5f5f5" }}>
+                          <td style={{ padding: "5px 8px", color: "#555" }}>{w.week}</td>
+                          <td style={{ padding: "5px 8px", textAlign: "right", color: w.trucks >= 14 ? "#1D9E75" : "#A32D2D", fontWeight: 500 }}>{w.trucks}</td>
+                          <td style={{ padding: "5px 8px", textAlign: "right", fontWeight: 500, color }}>{arrow} {w.dpu}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </>
         ) : (

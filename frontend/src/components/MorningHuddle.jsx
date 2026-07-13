@@ -134,11 +134,58 @@ export default function MorningHuddle({ summary, onClose, onSaved }) {
 
   const { goals } = summary;
 
-  const oeeColor   = summary.oee >= 85 ? "#1D9E75" : summary.oee >= 60 ? "#E4A317" : "#E24B4A";
-  const availColor = summary.availability >= 85 ? "#1D9E75" : "#E4A317";
-  const perfColor  = summary.performance >= 85 ? "#1D9E75" : "#E4A317";
-  const qualColor  = summary.quality >= 85 ? "#1D9E75" : "#E4A317";
-  const truckColor = summary.trucks_this_week >= goals.weekly_trucks_min ? "#1D9E75" : "#E24B4A";
+  // History used to compute week-over-week trend arrows for the Phase 1 cards,
+  // calculated the same way OEEMetrics.jsx computes its "Last week" trend arrows.
+  const allHistory      = summary.dpu_history ?? [];
+  const indirectHistory = summary.indirect_labor_history ?? [];
+
+  function computeWeekMetrics(weekStr) {
+    const entry = allHistory.find(w => w.week === weekStr);
+    if (!entry) return null;
+    const laborEntry   = indirectHistory.find(r => r.week_start === weekStr);
+    const weeklyTarget = (goals.weekly_trucks_min + goals.weekly_trucks_max) / 2;
+    const days         = laborEntry?.working_days ?? 5;
+    const adjTarget     = weeklyTarget * (days / 5);
+    const performance   = adjTarget > 0 ? (entry.trucks / adjTarget) * 100 : 0;
+    const availability  = laborEntry && laborEntry.total_labor_hours > 0
+      ? ((laborEntry.total_labor_hours - laborEntry.indirect_hours - laborEntry.rework_hours) / laborEntry.total_labor_hours) * 100
+      : 0;
+    const quality = entry.dpu === 0 ? 0
+      : entry.dpu <= goals.quarterly_dpu_goal ? 100
+      : (goals.quarterly_dpu_goal / entry.dpu) * 100;
+    const oee = (availability / 100) * (performance / 100) * (quality / 100) * 100;
+    return { trucks: entry.trucks, availability, performance, quality, oee };
+  }
+
+  const currWeekStr = allHistory[allHistory.length - 1]?.week ?? null;
+  const prevWeekStr = allHistory[allHistory.length - 2]?.week ?? null;
+  const currWeekMetrics = currWeekStr ? computeWeekMetrics(currWeekStr) : null;
+  const prevWeekMetrics = prevWeekStr ? computeWeekMetrics(prevWeekStr) : null;
+
+  function trendArrow(curr, prevVal) {
+    if (curr == null || prevVal == null) return { arrow: "", color: null };
+    if (curr > prevVal) return { arrow: "↑ ", color: "#1D9E75" };
+    if (curr < prevVal) return { arrow: "↓ ", color: "#E24B4A" };
+    return { arrow: "→ ", color: "#888" };
+  }
+
+  const oeeTrend    = trendArrow(currWeekMetrics?.oee, prevWeekMetrics?.oee);
+  const availTrend  = trendArrow(currWeekMetrics?.availability, prevWeekMetrics?.availability);
+  const perfTrend   = trendArrow(currWeekMetrics?.performance, prevWeekMetrics?.performance);
+  const qualTrend   = trendArrow(currWeekMetrics?.quality, prevWeekMetrics?.quality);
+  const trucksTrend = trendArrow(currWeekMetrics?.trucks, prevWeekMetrics?.trucks);
+
+  const oeePrev    = prevWeekMetrics ? Math.round(prevWeekMetrics.oee * 10) / 10 : null;
+  const availPrev  = prevWeekMetrics ? Math.round(prevWeekMetrics.availability * 10) / 10 : null;
+  const perfPrev   = prevWeekMetrics ? Math.round(prevWeekMetrics.performance * 10) / 10 : null;
+  const qualPrev   = prevWeekMetrics ? Math.round(prevWeekMetrics.quality * 10) / 10 : null;
+  const trucksPrev = prevWeekMetrics ? Math.round(prevWeekMetrics.trucks * 10) / 10 : null;
+
+  const oeeColor   = oeeTrend.color   ?? (summary.oee >= 85 ? "#1D9E75" : summary.oee >= 60 ? "#E4A317" : "#E24B4A");
+  const availColor = availTrend.color ?? (summary.availability >= 85 ? "#1D9E75" : "#E4A317");
+  const perfColor  = perfTrend.color  ?? (summary.performance >= 85 ? "#1D9E75" : "#E4A317");
+  const qualColor  = qualTrend.color  ?? (summary.quality >= 85 ? "#1D9E75" : "#E4A317");
+  const truckColor = trucksTrend.color ?? (summary.trucks_this_week >= goals.weekly_trucks_min ? "#1D9E75" : "#E24B4A");
   const dpuColor   = summary.avg_dpu_this_week === 0 ? "#888"
     : summary.avg_dpu_this_week <= goals.quarterly_dpu_goal ? "#1D9E75" : "#E24B4A";
 
@@ -301,30 +348,45 @@ export default function MorningHuddle({ summary, onClose, onSaved }) {
             <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 10 }}>
               <div style={s.card}>
                 <p style={s.label}>Overall OEE</p>
-                <p style={s.bigNum(oeeColor)}>{summary.oee}%</p>
-                <p style={s.sub}>Last Week</p>
+                <p style={s.bigNum(oeeColor)}>{oeeTrend.arrow}{summary.oee}%</p>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <p style={s.sub}>Last Week</p>
+                  {oeePrev != null && <p style={s.sub}>Prev WK: <span style={{ color: "#888", fontWeight: 500 }}>{oeePrev}%</span></p>}
+                </div>
               </div>
               <div style={s.card}>
                 <p style={s.label}>Availability</p>
-                <p style={s.bigNum(availColor)}>{summary.availability}%</p>
-                <p style={s.sub}>Downtime / Total Labor Hours</p>
+                <p style={s.bigNum(availColor)}>{availTrend.arrow}{summary.availability}%</p>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <p style={s.sub}>Downtime / Total Labor Hours</p>
+                  {availPrev != null && <p style={s.sub}>Prev WK: <span style={{ color: "#888", fontWeight: 500 }}>{availPrev}%</span></p>}
+                </div>
               </div>
               <div style={s.card}>
                 <p style={s.label}>Performance</p>
-                <p style={s.bigNum(perfColor)}>{summary.performance}%</p>
-                <p style={s.sub}>Actual vs Target</p>
+                <p style={s.bigNum(perfColor)}>{perfTrend.arrow}{summary.performance}%</p>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <p style={s.sub}>Actual vs Target</p>
+                  {perfPrev != null && <p style={s.sub}>Prev WK: <span style={{ color: "#888", fontWeight: 500 }}>{perfPrev}%</span></p>}
+                </div>
               </div>
               <div style={s.card}>
                 <p style={s.label}>Quality</p>
-                <p style={s.bigNum(qualColor)}>{summary.quality}%</p>
-                <p style={s.sub}>Goal / Actual DPU</p>
+                <p style={s.bigNum(qualColor)}>{qualTrend.arrow}{summary.quality}%</p>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <p style={s.sub}>Goal / Actual DPU</p>
+                  {qualPrev != null && <p style={s.sub}>Prev WK: <span style={{ color: "#888", fontWeight: 500 }}>{qualPrev}%</span></p>}
+                </div>
               </div>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
               <div style={s.card}>
                 <p style={s.label}>Trucks Last Week</p>
-                <p style={s.bigNum(truckColor)}>{summary.trucks_this_week}</p>
-                <p style={s.sub}>Target {goals.weekly_trucks_min}–{goals.weekly_trucks_max}</p>
+                <p style={s.bigNum(truckColor)}>{trucksTrend.arrow}{summary.trucks_this_week}</p>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <p style={s.sub}>Target {goals.weekly_trucks_min}–{goals.weekly_trucks_max}</p>
+                  {trucksPrev != null && <p style={s.sub}>Prev WK: <span style={{ color: "#888", fontWeight: 500 }}>{trucksPrev}</span></p>}
+                </div>
               </div>
               <div style={s.card}>
                 <p style={s.label}>DPU Last Week</p>
