@@ -7,6 +7,10 @@ from typing import Optional
 from database import Base, engine, get_db, Issue, IssueUpdate, WorkOrder, DowntimeLog, OEEGoals, ReworkHours, Foreman, GoalHistory, IndirectLabor, Supervisor, TruckType, DefectType, WorkOrderDefect
 Base.metadata.create_all(bind=engine)
 
+import os
+
+DASHBOARD_PASSWORD = {"value": os.environ.get("DASHBOARD_PASSWORD", "1234")}
+
 app = FastAPI()
 
 app.add_middleware(
@@ -1007,3 +1011,19 @@ def delete_wo_defect(wo_id: int, defect_id: int, db: Session = Depends(get_db)):
         wo.total_defects = sum(d.quantity for d in remaining)
     db.commit()
     return
+
+@app.post("/auth/verify")
+def verify_password(data: dict):
+    if data.get("password") == DASHBOARD_PASSWORD["value"]:
+        return {"ok": True}
+    raise HTTPException(status_code=401, detail="Incorrect password")
+
+@app.post("/auth/change-password")
+def change_password(data: dict):
+    if data.get("current_password") != DASHBOARD_PASSWORD["value"]:
+        raise HTTPException(status_code=401, detail="Incorrect current password")
+    new = data.get("new_password", "")
+    if len(new) < 4:
+        raise HTTPException(status_code=400, detail="Password too short")
+    DASHBOARD_PASSWORD["value"] = new
+    return {"ok": True}

@@ -6,16 +6,18 @@ export default function SupervisorLogin({ onSuccess }) {
   const [input, setInput]   = useState("");
   const [error, setError]   = useState(false);
 
-  function handleSubmit(e) {
-    e.preventDefault();
-    if (input === PASSWORD) {
-      sessionStorage.setItem("supervisor_auth", "true");
-      onSuccess();
-    } else {
-      setError(true);
-      setInput("");
-    }
+  async function handleSubmit(e) {
+  e.preventDefault();
+  try {
+    const { verifyPassword } = await import("../api/issues");
+    await verifyPassword(input);
+    sessionStorage.setItem("supervisor_auth", "true");
+    onSuccess();
+  } catch {
+    setError(true);
+    setInput("");
   }
+}
 
   return (
     <div style={{

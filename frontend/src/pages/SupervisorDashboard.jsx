@@ -17,6 +17,7 @@ import MorningHuddle from "../components/MorningHuddle";
 import SupervisorManagePanel from "../components/SupervisorManagePanel";
 import TruckTypeManagePanel from "../components/TruckTypeManagePanel";
 import DefectTypeManagePanel from "../components/DefectTypeManagePanel";
+import PasswordChangePanel from "../components/PasswordChangePanel";
 
 function daysOld(createdAt) {
   const created = new Date(createdAt + "Z");
@@ -294,10 +295,11 @@ export default function SupervisorDashboard() {
                   }}>Enable notifications</button>
                 )}
                 {notifPermission === "granted" && (
-                  <span style={{ fontSize: 11, color: "#0F6E56", background: "#E1F5EE", padding: "3px 10px", borderRadius: 8 }}>
-                    Notifications on
-                  </span>
-                )}
+  <span style={{ fontSize: 11, color: "#0F6E56", background: "#E1F5EE", padding: "3px 10px", borderRadius: 8 }}>
+    Notifications on
+  </span>
+)}
+<PasswordChangePanel />
               </div>
             </div>
             <p style={{ fontSize: 13, color: "#888", marginBottom: 20, marginTop: 4 }}>

@@ -327,3 +327,23 @@ export async function getAllDefectBreakdowns() {
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
+
+export async function verifyPassword(password) {
+  const res = await fetch(`${BASE}/auth/verify`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ password }),
+  });
+  if (!res.ok) throw new Error("Incorrect password");
+  return res.json();
+}
+
+export async function changePassword(currentPassword, newPassword) {
+  const res = await fetch(`${BASE}/auth/change-password`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
