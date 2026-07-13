@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
 import {
   LineChart, Line, XAxis, YAxis, Tooltip,
-  ResponsiveContainer, ReferenceLine
+  ResponsiveContainer, ReferenceLine, ComposedChart, Bar, Legend,
 } from "recharts";
 import { getGoalHistory } from "../api/issues";
 
@@ -38,6 +38,13 @@ function getLastWeekStart() {
   return monday.toISOString().split("T")[0];
 }
 
+// Custom dot for the goal tracking chart — shows a marker when goal changed
+function GoalChangeDot(props) {
+  const { cx, cy, payload } = props;
+  if (!payload?.goalChanged) return null;
+  return <circle cx={cx} cy={cy} r={5} fill="#D4A017" stroke="#fff" strokeWidth={1.5} />;
+}
+
 export default function OEEMetrics({ summary }) {
   if (!summary) return null;
 
@@ -69,6 +76,8 @@ export default function OEEMetrics({ summary }) {
   const [dpuFilter, setDpuFilter]       = useState("quarter");
   const [selectedYear, setSelectedYear] = useState(lastHistoryYear);
   const [selectedSub, setSelectedSub]   = useState(lastHistoryQuarter);
+
+  const [goalChartYear, setGoalChartYear] = useState(lastHistoryYear);
 
   const availableYears = useMemo(() => {
     const years = new Set(allHistory.map(w => new Date(w.week).getFullYear()));
@@ -102,6 +111,64 @@ export default function OEEMetrics({ summary }) {
       .map(w => new Date(w.week).getMonth()));
     return [...ms].sort((a, b) => a - b);
   }, [allHistory, selectedYear]);
+
+  // Goal tracking chart data — DPU actual vs stepped goal lines
+  const goalTrackingData = useMemo(() => {
+    const sortedGoals = [...goalHistory].sort((a, b) => a.effective_date.localeCompare(b.effective_date));
+
+    function getGoalAt(dateStr) {
+      if (!sortedGoals.length) return { annual: goals.annual_dpu_goal, quarterly: goals.quarterly_dpu_goal };
+      let active = sortedGoals[0];
+      for (const g of sortedGoals) {
+        if (g.effective_date <= dateStr) active = g;
+        else break;
+      }
+      return { annual: active.annual_dpu_goal, quarterly: active.quarterly_dpu_goal };
+    }
+
+    const yearWeeks = allHistory.filter(w => new Date(w.week).getFullYear() === goalChartYear);
+    if (yearWeeks.length === 0) return [];
+
+    return yearWeeks.map((w, i) => {
+      const g = getGoalAt(w.week);
+      const prevG = i > 0 ? getGoalAt(yearWeeks[i - 1].week) : null;
+      const goalChanged = prevG && (prevG.annual !== g.annual || prevG.quarterly !== g.quarterly);
+      return {
+        week:             w.week,
+        dpu:              w.dpu,
+        trucks:           w.trucks,
+        annualGoal:       g.annual,
+        quarterlyGoal:    g.quarterly,
+        goalChanged:      goalChanged || false,
+        weekLabel:        w.week.slice(5), // MM-DD
+      };
+    });
+  }, [allHistory, goalHistory, goalChartYear, goals]);
+
+  // Quarter attainment — % of weeks in each quarter that hit the quarterly goal
+  const quarterAttainment = useMemo(() => {
+    const quarters = {};
+    allHistory.forEach(w => {
+      const d = new Date(w.week);
+      const yr = d.getFullYear();
+      const q  = Math.floor(d.getMonth() / 3);
+      const key = `Q${q + 1} ${yr}`;
+      if (!quarters[key]) quarters[key] = { total: 0, hit: 0, label: key };
+      quarters[key].total++;
+
+      const sortedGoals = [...goalHistory].sort((a, b) => a.effective_date.localeCompare(b.effective_date));
+      let activeGoal = goals.quarterly_dpu_goal;
+      for (const g of sortedGoals) {
+        if (g.effective_date <= w.week) activeGoal = g.quarterly_dpu_goal;
+        else break;
+      }
+      if (w.dpu <= activeGoal) quarters[key].hit++;
+    });
+
+    return Object.values(quarters)
+      .sort((a, b) => a.label.localeCompare(b.label))
+      .map(q => ({ ...q, pct: q.total > 0 ? Math.round((q.hit / q.total) * 100) : 0 }));
+  }, [allHistory, goalHistory, goals]);
 
   function onCardYearChange(year) {
     setCardYear(year);
@@ -200,9 +267,6 @@ export default function OEEMetrics({ summary }) {
       const last = allHistory[allHistory.length - 1]?.dpu ?? 0;
       const prev = allHistory[allHistory.length - 2]?.dpu ?? null;
 
-      // Compute Availability / Performance / Quality / OEE for a single given week,
-      // using the same formulas as the multi-week period averages below,
-      // so last week and the week before it are calculated the same way.
       function computeWeekMetrics(weekStr) {
         const entry = allHistory.find(w => w.week === weekStr);
         if (!entry) return null;
@@ -267,8 +331,6 @@ export default function OEEMetrics({ summary }) {
       };
     }
 
-    // Compute Availability / Performance / Quality / OEE / Trucks / DPU averaged
-    // over all weeks that fall in a given month / quarter / year.
     function computePeriodAverages(periodType, year, sub) {
       const filterWeeks = (weeks) => weeks.filter(w => {
         const d = new Date(w.week);
@@ -343,7 +405,6 @@ export default function OEEMetrics({ summary }) {
         if (q < 0) { q = 3; y -= 1; }
         return { year: y, sub: q };
       }
-      // ytd — compare to the prior year
       return { year: year - 1, sub: 0 };
     }
 
@@ -418,6 +479,34 @@ export default function OEEMetrics({ summary }) {
     fontFamily: "inherit", background: "#fff", color: "#555",
   };
 
+  // Custom tooltip for goal tracking chart
+  const GoalTooltip = ({ active, payload, label }) => {
+    if (!active || !payload?.length) return null;
+    const d = payload[0]?.payload;
+    return (
+      <div style={{ background: "#fff", border: "0.5px solid #eee", borderRadius: 8, padding: "10px 14px", fontSize: 12 }}>
+        <p style={{ margin: "0 0 4px", fontWeight: 500, color: "#333" }}>Week of {label}</p>
+        <p style={{ margin: "0 0 2px", color: "#378ADD" }}>DPU: <strong>{d?.dpu}</strong></p>
+        <p style={{ margin: "0 0 2px", color: "#D4A017" }}>Annual goal: {d?.annualGoal}</p>
+        <p style={{ margin: "0 0 2px", color: "#854F0B" }}>Quarterly goal: {d?.quarterlyGoal}</p>
+        {d?.goalChanged && <p style={{ margin: "4px 0 0", color: "#D4A017", fontSize: 10 }}>⚑ Goal changed this week</p>}
+      </div>
+    );
+  };
+
+  const attainmentTooltip = ({ active, payload, label }) => {
+    if (!active || !payload?.length) return null;
+    const pct = payload[0]?.value;
+    return (
+      <div style={{ background: "#fff", border: "0.5px solid #eee", borderRadius: 8, padding: "10px 14px", fontSize: 12 }}>
+        <p style={{ margin: "0 0 4px", fontWeight: 500, color: "#333" }}>{label}</p>
+        <p style={{ margin: 0, color: pct >= 80 ? "#1D9E75" : pct >= 50 ? "#854F0B" : "#A32D2D" }}>
+          {pct}% of weeks hit goal
+        </p>
+      </div>
+    );
+  };
+
   return (
     <div>
 
@@ -473,7 +562,6 @@ export default function OEEMetrics({ summary }) {
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 24 }}>
-
         <div style={{ background: "#fafafa", borderRadius: 8, padding: "14px 16px", border: "0.5px solid #eee" }}>
           <p style={{ fontSize: 11, color: "#888", margin: "0 0 4px" }}>Quarterly DPU</p>
           <p style={{ fontSize: 22, fontWeight: 500, margin: "0 0 4px", color: periodData.dpu === 0 ? "#aaa" : periodData.dpu <= periodGoal.quarterly_dpu_goal ? "#1D9E75" : "#A32D2D" }}>
@@ -534,10 +622,10 @@ export default function OEEMetrics({ summary }) {
           </p>
           <p style={{ fontSize: 11, color: "#aaa", margin: 0 }}>{periodData.dpuSub}</p>
         </div>
-
       </div>
 
-      <div style={{ background: "#fff", border: "0.5px solid #eee", borderRadius: 12, padding: 20 }}>
+      {/* WEEKLY DPU TREND */}
+      <div style={{ background: "#fff", border: "0.5px solid #eee", borderRadius: 12, padding: 20, marginBottom: 16 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
           <p style={{ fontSize: 13, fontWeight: 500, color: "#555", margin: 0 }}>Weekly DPU Trend</p>
           <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
@@ -620,7 +708,7 @@ export default function OEEMetrics({ summary }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {[...filteredHistory].reverse().map((w) => {
+                    {[...filteredHistory].sort((a, b) => b.week.localeCompare(a.week)).map((w) => {
                       const color = w.trend === "down" ? "#1D9E75" : w.trend === "up" ? "#A32D2D" : "#888";
                       const arrow = w.trend === "down" ? "↓" : w.trend === "up" ? "↑" : w.trend === "same" ? "→" : "";
                       return (
@@ -647,6 +735,91 @@ export default function OEEMetrics({ summary }) {
           <span style={{ color: "#A32D2D" }}>↑ Worsened</span>
           <span style={{ color: "#888" }}>→ No change</span>
         </div>
+      </div>
+
+      {/* GOAL TRACKING OVER TIME */}
+      <div style={{ background: "#fff", border: "0.5px solid #eee", borderRadius: 12, padding: 20 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4, flexWrap: "wrap", gap: 8 }}>
+          <div>
+            <p style={{ fontSize: 13, fontWeight: 500, color: "#555", margin: "0 0 2px" }}>Goal Tracking Over Time</p>
+            <p style={{ fontSize: 11, color: "#aaa", margin: 0 }}>
+              Weekly DPU vs. Goal Lines — goal lines step when targets change
+            </p>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            {availableYears.length > 1 && (
+              <select value={goalChartYear} onChange={e => setGoalChartYear(Number(e.target.value))} style={subSelectStyle}>
+                {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
+              </select>
+            )}
+          </div>
+        </div>
+
+        {goalTrackingData.length === 0 ? (
+          <p style={{ fontSize: 13, color: "#aaa", textAlign: "center", padding: "40px 0" }}>No data for this year</p>
+        ) : (
+          <>
+            <ResponsiveContainer width="100%" height={200}>
+              <ComposedChart data={goalTrackingData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <XAxis dataKey="weekLabel" tick={{ fontSize: 10 }} interval={Math.floor(goalTrackingData.length / 8)} />
+                <YAxis tick={{ fontSize: 10 }} />
+                <Tooltip content={<GoalTooltip />} />
+                <Bar dataKey="dpu" fill="#E6F1FB" name="DPU" radius={[2, 2, 0, 0]} />
+                <Line type="stepAfter" dataKey="annualGoal"    stroke="#D4A017" strokeWidth={2} dot={<GoalChangeDot />}  name="Annual Goal"    strokeDasharray="5 3" />
+                <Line type="stepAfter" dataKey="quarterlyGoal" stroke="#854F0B" strokeWidth={2} dot={false} name="Quarterly Goal" strokeDasharray="5 3" />
+                <Line type="monotone"  dataKey="dpu"           stroke="#378ADD" strokeWidth={2} dot={false} name="Actual DPU" />
+                <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
+              </ComposedChart>
+            </ResponsiveContainer>
+
+            {/* Quarter attainment */}
+            {quarterAttainment.length > 0 && (
+              <div style={{ marginTop: 16, borderTop: "0.5px solid #f0f0f0", paddingTop: 14 }}>
+                <p style={{ fontSize: 12, fontWeight: 500, color: "#555", margin: "0 0 10px" }}>
+                  Quarterly Goal Attainment — % of weeks that hit the quarterly DPU target
+                </p>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {quarterAttainment.map(q => (
+                    <div key={q.label} style={{
+                      background: "#fafafa", border: "0.5px solid #eee", borderRadius: 8,
+                      padding: "10px 14px", minWidth: 90, textAlign: "center",
+                    }}>
+                      <p style={{ fontSize: 10, color: "#888", margin: "0 0 4px" }}>{q.label}</p>
+                      <p style={{
+                        fontSize: 20, fontWeight: 500, margin: "0 0 2px",
+                        color: q.pct >= 80 ? "#1D9E75" : q.pct >= 50 ? "#854F0B" : "#A32D2D",
+                      }}>{q.pct}%</p>
+                      <p style={{ fontSize: 10, color: "#aaa", margin: 0 }}>{q.hit}/{q.total} wks</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Goal change history */}
+            {goalHistory.length > 0 && (
+              <div style={{ marginTop: 14, borderTop: "0.5px solid #f0f0f0", paddingTop: 14 }}>
+                <p style={{ fontSize: 12, fontWeight: 500, color: "#555", margin: "0 0 8px" }}>Goal History</p>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {[...goalHistory].sort((a, b) => b.effective_date.localeCompare(a.effective_date)).map(g => (
+                    <div key={g.id} style={{
+                      background: "#fafafa", border: "0.5px solid #eee", borderRadius: 8,
+                      padding: "8px 12px", fontSize: 12,
+                    }}>
+                      <p style={{ fontSize: 10, color: "#aaa", margin: "0 0 4px" }}>Effective {g.effective_date}</p>
+                      <p style={{ margin: "0 0 2px", color: "#555" }}>
+                        Annual: <span style={{ fontWeight: 500, color: "#D4A017" }}>{g.annual_dpu_goal}</span>
+                      </p>
+                      <p style={{ margin: 0, color: "#555" }}>
+                        Quarterly: <span style={{ fontWeight: 500, color: "#854F0B" }}>{g.quarterly_dpu_goal}</span>
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        )}
       </div>
 
     </div>

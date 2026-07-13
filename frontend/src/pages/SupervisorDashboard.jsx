@@ -31,6 +31,124 @@ function titleCase(str) {
   return str.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
 }
 
+// ─── Alert banner component ───────────────────────────────────────────────────
+
+function AlertBanner({ alerts, onDismiss, onDismissAll }) {
+  if (!alerts || alerts.length === 0) return null;
+
+  const severityStyle = {
+    critical: { bg: "#FCEBEB", border: "#F09595", icon: "ti-alert-triangle", iconColor: "#A32D2D", titleColor: "#791F1F", textColor: "#A32D2D", badgeBg: "#F09595", badgeColor: "#501313", label: "Critical" },
+    warning:  { bg: "#E1F5EE", border: "#5DCAA5", icon: "ti-alert-circle",   iconColor: "#0F6E56", titleColor: "#085041", textColor: "#0F6E56", badgeBg: "#9FE1CB", badgeColor: "#04342C", label: "Attention" },
+    info:     { bg: "#fafafa", border: "#eee",    icon: "ti-clock",           iconColor: "#888",    titleColor: "#333",    textColor: "#888",    badgeBg: "#eee",    badgeColor: "#555",    label: "Info" },
+  };
+
+  return (
+    <div style={{ border: "0.5px solid #eee", borderRadius: 10, overflow: "hidden", marginBottom: 20 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", background: "#fafafa", borderBottom: "0.5px solid #eee" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <i className="ti ti-bell" style={{ fontSize: 15, color: "#888" }} aria-hidden="true" />
+          <span style={{ fontSize: 12, fontWeight: 500, color: "#333" }}>
+            {alerts.length} alert{alerts.length !== 1 ? "s" : ""} this week
+          </span>
+        </div>
+        <button onClick={onDismissAll} style={{ fontSize: 11, color: "#888", background: "none", border: "none", cursor: "pointer", padding: 0, fontFamily: "inherit" }}>
+          Dismiss all
+        </button>
+      </div>
+      {alerts.map((alert, i) => {
+        const s = severityStyle[alert.severity] ?? severityStyle.info;
+        return (
+          <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderBottom: i < alerts.length - 1 ? "0.5px solid #eee" : "none", background: s.bg }}>
+            <i className={`ti ${s.icon}`} style={{ fontSize: 15, color: s.iconColor, flexShrink: 0 }} aria-hidden="true" />
+            <div style={{ flex: 1 }}>
+              <p style={{ fontSize: 12, fontWeight: 500, color: s.titleColor, margin: 0 }}>{alert.title}</p>
+              {alert.detail && <p style={{ fontSize: 11, color: s.textColor, margin: "2px 0 0" }}>{alert.detail}</p>}
+            </div>
+            <span style={{ fontSize: 10, background: s.badgeBg, color: s.badgeColor, padding: "2px 7px", borderRadius: 10, fontWeight: 500, whiteSpace: "nowrap" }}>
+              {s.label}
+            </span>
+            <button onClick={() => onDismiss(i)} style={{ fontSize: 13, color: "#aaa", background: "none", border: "none", cursor: "pointer", padding: "0 2px", lineHeight: 1, fontFamily: "inherit" }}>✕</button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── Alert threshold checker ──────────────────────────────────────────────────
+
+function computeAlerts(oeeSummary, issues) {
+  if (!oeeSummary) return [];
+  const alerts = [];
+  const { goals } = oeeSummary;
+
+  // OEE below 60%
+  if (oeeSummary.oee > 0 && oeeSummary.oee < 60) {
+    alerts.push({
+      severity: "critical",
+      title:    `OEE dropped below 60% — last week ${oeeSummary.oee}%`,
+      detail:   "Availability, Performance, or Quality metric may need attention.",
+    });
+  }
+
+  // DPU exceeded quarterly goal
+  if (oeeSummary.avg_dpu_this_week > 0 && oeeSummary.avg_dpu_this_week > goals.quarterly_dpu_goal) {
+    alerts.push({
+      severity: "critical",
+      title:    `DPU exceeded quarterly goal — ${oeeSummary.avg_dpu_this_week} vs ${goals.quarterly_dpu_goal} target`,
+      detail:   "Quality metric is affected. Review defect breakdown in Work Orders.",
+    });
+  }
+
+  // Trucks below weekly minimum
+  if (oeeSummary.trucks_this_week > 0 && oeeSummary.trucks_this_week < goals.weekly_trucks_min) {
+    alerts.push({
+      severity: "warning",
+      title:    `Trucks below target — ${oeeSummary.trucks_this_week} completed, goal is ${goals.weekly_trucks_min}–${goals.weekly_trucks_max}`,
+      detail:   "Performance metric is affected.",
+    });
+  }
+
+  // Rework hours above 10%
+  const reworkPct = oeeSummary.last_week_total_hours > 0
+    ? (oeeSummary.last_week_rework_hours / oeeSummary.last_week_total_hours) * 100
+    : 0;
+  if (reworkPct > 10) {
+    alerts.push({
+      severity: "warning",
+      title:    `Rework hours above 10% — ${reworkPct.toFixed(1)}% of total labor hours`,
+      detail:   "High rework reduces Availability. Review labor entries.",
+    });
+  }
+
+  // Issues open longer than 14 days
+  const staleIssues = issues.filter(i => {
+    if (i.status === "solved") return false;
+    const days = Math.floor((new Date() - new Date(i.created_at + "Z")) / (1000 * 60 * 60 * 24));
+    return days > 14;
+  });
+  if (staleIssues.length > 0) {
+    const names = [...new Set(staleIssues.map(i => i.foreman_name))].join(", ");
+    alerts.push({
+      severity: "info",
+      title:    `${staleIssues.length} issue${staleIssues.length !== 1 ? "s" : ""} open longer than 14 days`,
+      detail:   `Foremen: ${names}`,
+    });
+  }
+
+  return alerts;
+}
+
+// Alert notification key — stored in sessionStorage so it fires once per session per week
+function getAlertWeekKey() {
+  const d = new Date();
+  const day  = d.getDay();
+  const diff = day === 0 ? 6 : day - 1;
+  const monday = new Date(d);
+  monday.setDate(d.getDate() - diff);
+  return `alerts_notified_${monday.toISOString().split("T")[0]}`;
+}
+
 export default function SupervisorDashboard() {
   const [authed, setAuthed]                   = useState(sessionStorage.getItem("supervisor_auth") === "true");
   const [activeTab, setActiveTab]             = useState("issues");
@@ -53,9 +171,12 @@ export default function SupervisorDashboard() {
   const [loading, setLoading]                 = useState(true);
   const [notifPermission, setNotifPermission] = useState(Notification.permission);
   const [exporting, setExporting]             = useState(false);
+  const [alerts, setAlerts]                   = useState([]);
+  const [dismissedAlerts, setDismissedAlerts] = useState(new Set());
 
   const knownIssueIds     = useRef(null);
   const knownWorkOrderIds = useRef(null);
+  const alertsNotifiedRef = useRef(false);
 
   useEffect(() => {
     if (!authed) return;
@@ -63,6 +184,44 @@ export default function SupervisorDashboard() {
       Notification.requestPermission().then(perm => setNotifPermission(perm));
     }
   }, [authed]);
+
+  // Recompute alerts whenever oeeSummary or issues change
+  useEffect(() => {
+    if (!oeeSummary || issues.length === 0) return;
+    const computed = computeAlerts(oeeSummary, issues);
+    setAlerts(computed);
+    setDismissedAlerts(new Set());
+
+    // Fire desktop notifications once per week per alert type
+    if (Notification.permission === "granted" && computed.length > 0) {
+      const weekKey = getAlertWeekKey();
+      const alreadyNotified = sessionStorage.getItem(weekKey);
+      if (!alreadyNotified) {
+        computed.forEach((alert, i) => {
+          setTimeout(() => {
+            const notif = new Notification(alert.severity === "critical" ? "Dashboard Alert" : "Dashboard Notice", {
+              body: alert.title,
+              icon: "/favicon.svg",
+              badge: "/favicon.svg",
+              tag: `alert-${weekKey}-${i}`,
+            });
+            notif.onclick = () => { window.focus(); notif.close(); };
+          }, i * 800); // stagger so they don't stack instantly
+        });
+        sessionStorage.setItem(weekKey, "1");
+      }
+    }
+  }, [oeeSummary, issues]);
+
+  const visibleAlerts = alerts.filter((_, i) => !dismissedAlerts.has(i));
+
+  function dismissAlert(idx) {
+    setDismissedAlerts(prev => new Set([...prev, idx]));
+  }
+
+  function dismissAllAlerts() {
+    setDismissedAlerts(new Set(alerts.map((_, i) => i)));
+  }
 
   async function load() {
     const [data, sum] = await Promise.all([getIssues({}), getSummary(period)]);
@@ -124,13 +283,13 @@ export default function SupervisorDashboard() {
   }, [authed]);
 
   async function handleExport(mode) {
-  console.log("handleExport called", mode);
-  setExporting(true);
-  try {
-    console.log("fetching data...");
-    const data = await exportAll();
-    console.log("data received", data);
-      const wb   = XLSX.utils.book_new();
+    console.log("handleExport called", mode);
+    setExporting(true);
+    try {
+      console.log("fetching data...");
+      const data = await exportAll();
+      console.log("data received", data);
+      const wb = XLSX.utils.book_new();
       if (mode === "issues") {
         const issueRows = data.issues.map(i => ({
           "ID": i.id, "Type": i.issue_type === "part" ? "Part Issue" : "Process Issue",
@@ -178,11 +337,11 @@ export default function SupervisorDashboard() {
         }));
         XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(laborRows), "Labor Hours");
         const goalRows = data.goal_history.map(g => ({
-          "Effective Date":    g.effective_date,
-          "Annual DPU Goal":   g.annual_dpu_goal,
+          "Effective Date":     g.effective_date,
+          "Annual DPU Goal":    g.annual_dpu_goal,
           "Quarterly DPU Goal": g.quarterly_dpu_goal,
-          "Weekly Trucks Min": g.weekly_trucks_min,
-          "Weekly Trucks Max": g.weekly_trucks_max,
+          "Weekly Trucks Min":  g.weekly_trucks_min,
+          "Weekly Trucks Max":  g.weekly_trucks_max,
         }));
         XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(goalRows), "Goal History");
         XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.foremen), "Foremen");
@@ -207,7 +366,7 @@ export default function SupervisorDashboard() {
   useEffect(() => {
     const canvas = document.createElement("canvas");
     canvas.width = canvas.height = 32;
-    const ctx    = canvas.getContext("2d");
+    const ctx = canvas.getContext("2d");
     const svgData = `<svg width="32" height="32" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
       <rect width="32" height="32" rx="6" fill="#1D9E75"/>
       <rect x="4" y="20" width="4" height="8" rx="1" fill="white" opacity="0.9"/>
@@ -295,16 +454,23 @@ export default function SupervisorDashboard() {
                   }}>Enable notifications</button>
                 )}
                 {notifPermission === "granted" && (
-  <span style={{ fontSize: 11, color: "#0F6E56", background: "#E1F5EE", padding: "3px 10px", borderRadius: 8 }}>
-    Notifications on
-  </span>
-)}
-<PasswordChangePanel />
+                  <span style={{ fontSize: 11, color: "#0F6E56", background: "#E1F5EE", padding: "3px 10px", borderRadius: 8 }}>
+                    Notifications on
+                  </span>
+                )}
+                <PasswordChangePanel />
               </div>
             </div>
             <p style={{ fontSize: 13, color: "#888", marginBottom: 20, marginTop: 4 }}>
               Overall Equipment Effectiveness and Production Metrics
             </p>
+
+            {/* ALERT BANNER */}
+            <AlertBanner
+              alerts={visibleAlerts}
+              onDismiss={dismissAlert}
+              onDismissAll={dismissAllAlerts}
+            />
 
             {/* MAIN TAB BAR */}
             <div style={{ display: "flex", gap: 2, borderBottom: "1px solid #eee", marginBottom: 28 }}>
@@ -564,7 +730,7 @@ export default function SupervisorDashboard() {
                         color: activeOeeTab === tab ? "#0F6E56" : "#888",
                         display: "flex", alignItems: "center", gap: 6,
                       }}>
-                        {tab === "overview" ? "Overview" : tab === "workorders" ? "Work Orders" : "Downtime"}
+                        {tab === "overview" ? "Overview" : tab === "workorders" ? "Quality and Performance" : "Availability"}
                         {tab === "workorders" && unreadWOCount > 0 && (
                           <span style={{ background: "#E24B4A", color: "#fff", fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 10, lineHeight: "16px" }}>
                             {unreadWOCount}
