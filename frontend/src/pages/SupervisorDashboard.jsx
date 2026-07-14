@@ -252,10 +252,10 @@ export default function SupervisorDashboard() {
     catch (err) { console.error("Foremen error:", err); }
   }
 
-  async function loadWorkOrders() {
+  async function loadWorkOrders(silent = false) {
     try {
       const data = await getWorkOrders();
-      if (knownWorkOrderIds.current !== null && Notification.permission === "granted") {
+      if (!silent && knownWorkOrderIds.current !== null && Notification.permission === "granted") {
         const newWOs = data.filter(wo => !knownWorkOrderIds.current.has(wo.id));
         newWOs.forEach(wo => {
           const notif = new Notification("New Defect Report Submitted", {
@@ -770,7 +770,7 @@ export default function SupervisorDashboard() {
                 {activeOeeTab === "overview" && <OEEMetrics summary={oeeSummary} />}
                 {activeOeeTab === "workorders" && (
                   <WorkOrderPanel
-                    onSaved={() => { loadOEE(); loadWorkOrders(); }}
+                    onSaved={() => { loadOEE(); loadWorkOrders(true); }}
                     unreadIds={new Set(workOrders.filter(wo => !wo.is_read).map(wo => wo.id))}
                     onMarkRead={async (id) => { await markWorkOrderRead(id); loadWorkOrders(); }}
                   />

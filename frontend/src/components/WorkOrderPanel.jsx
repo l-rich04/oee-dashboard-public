@@ -3,7 +3,6 @@ import {
   ResponsiveContainer, ComposedChart, Line, Cell,
 } from "recharts";
 
-
 import { useState, useEffect, useMemo } from "react";
 
 import {
@@ -57,11 +56,11 @@ const CHART_COLORS = ["#1D9E75", "#378ADD", "#E24B4A", "#854F0B", "#533AB7", "#0
 let nextId = 1;
 
 function emptyWORow(id) {
-  return { id, work_order_num: "", truck_type_id: "", defect_rows: [{ id: nextId++, defect_type_id: "", quantity: "" }] };
+  return { id, work_order_num: "", truck_type_id: "", defect_rows: [{ id: nextId++, defect_type_id: "" }] };
 }
 
 function emptyDefectRow() {
-  return { id: nextId++, defect_type_id: "", quantity: "" };
+  return { id: nextId++, defect_type_id: "" };
 }
 
 export default function WorkOrderPanel({ onSaved, unreadIds = new Set(), onMarkRead }) {
@@ -88,7 +87,7 @@ export default function WorkOrderPanel({ onSaved, unreadIds = new Set(), onMarkR
   const [editingDefectId, setEditingDefectId]   = useState(null);
   const [editDefectValues, setEditDefectValues] = useState({});
   const [addingDefectWoId, setAddingDefectWoId] = useState(null);
-  const [newDefectRow, setNewDefectRow]         = useState({ defect_type_id: "", quantity: "" });
+  const [newDefectRow, setNewDefectRow]         = useState({ defect_type_id: "" });
   const [defectSaving, setDefectSaving]         = useState(false);
 
   async function load() {
@@ -133,7 +132,6 @@ export default function WorkOrderPanel({ onSaved, unreadIds = new Set(), onMarkR
     return Object.entries(totals).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
   }, [filteredDefects]);
 
-  // Pareto data
   const paretoData = useMemo(() => {
     const total = pieData.reduce((s, d) => s + d.value, 0);
     if (total === 0) return [];
@@ -141,11 +139,11 @@ export default function WorkOrderPanel({ onSaved, unreadIds = new Set(), onMarkR
     return pieData.map((d, i) => {
       cumulative += d.value;
       return {
-        name:    d.name,
-        count:   d.value,
-        pct:     Math.round((d.value / total) * 100),
-        cumPct:  Math.round((cumulative / total) * 100),
-        fill:    CHART_COLORS[i % CHART_COLORS.length],
+        name:       d.name,
+        count:      d.value,
+        pct:        Math.round((d.value / total) * 100),
+        cumPct:     Math.round((cumulative / total) * 100),
+        fill:       CHART_COLORS[i % CHART_COLORS.length],
         eightyLine: 80,
       };
     });
@@ -200,8 +198,8 @@ export default function WorkOrderPanel({ onSaved, unreadIds = new Set(), onMarkR
   function updateDefectRow(woId, defectRowId, field, value) { setWoRows(prev => prev.map(r => r.id !== woId ? r : { ...r, defect_rows: r.defect_rows.map(d => d.id !== defectRowId ? d : { ...d, [field]: value }) })); }
   function addWORow() { setWoRows(prev => [...prev, emptyWORow(nextId++)]); }
   function removeWORow(id) { if (woRows.length === 1) return; setWoRows(prev => prev.filter(r => r.id !== id)); }
-  function calcTotal(defect_rows) { return defect_rows.reduce((sum, d) => sum + (Number(d.quantity) || 0), 0); }
-  function isValidWO(row) { return row.work_order_num.length === 6 && row.truck_type_id !== ""; }
+  function calcTotal(defect_rows) { return defect_rows.filter(d => d.defect_type_id).length; }
+  function isValidWO(row) { return row.work_order_num.length >= 6 && row.truck_type_id !== ""; }
 
   const validRows           = woRows.filter(isValidWO);
   const readyCount          = validRows.length;
@@ -218,7 +216,7 @@ export default function WorkOrderPanel({ onSaved, unreadIds = new Set(), onMarkR
         const truckName = truckTypes.find(t => t.id === Number(row.truck_type_id))?.name ?? "n/a";
         const wo = await createWorkOrder({ work_order_num: row.work_order_num, truck_type: truckName, units_completed: 1, total_defects: total, week_start: weekStart });
         for (const d of row.defect_rows) {
-          if (d.defect_type_id && Number(d.quantity) > 0) await addWorkOrderDefect(wo.id, Number(d.defect_type_id), Number(d.quantity));
+          if (d.defect_type_id) await addWorkOrderDefect(wo.id, Number(d.defect_type_id), 1);
         }
       }
       setSuccessMsg(`${readyCount} work order${readyCount > 1 ? "s" : ""} added.`);
@@ -259,14 +257,14 @@ export default function WorkOrderPanel({ onSaved, unreadIds = new Set(), onMarkR
     if (onSaved) onSaved();
   }
 
-  function startEditDefect(d) { setEditingDefectId(d.id); setEditDefectValues({ defect_type_id: String(d.defect_type_id), quantity: String(d.quantity) }); }
+  function startEditDefect(d) { setEditingDefectId(d.id); setEditDefectValues({ defect_type_id: String(d.defect_type_id) }); }
 
   async function saveEditDefect(woId, defectId) {
     if (defectSaving) return;
     setDefectSaving(true);
     try {
       await deleteWorkOrderDefect(woId, defectId);
-      await addWorkOrderDefect(woId, Number(editDefectValues.defect_type_id), Number(editDefectValues.quantity));
+      await addWorkOrderDefect(woId, Number(editDefectValues.defect_type_id), 1);
       setEditingDefectId(null); setEditDefectValues({});
       const defects = await getWorkOrderDefects(woId);
       setWoDefects(prev => ({ ...prev, [woId]: defects }));
@@ -277,11 +275,11 @@ export default function WorkOrderPanel({ onSaved, unreadIds = new Set(), onMarkR
   }
 
   async function handleAddDefect(woId) {
-    if (!newDefectRow.defect_type_id || !newDefectRow.quantity || defectSaving) return;
+    if (!newDefectRow.defect_type_id || defectSaving) return;
     setDefectSaving(true);
     try {
-      await addWorkOrderDefect(woId, Number(newDefectRow.defect_type_id), Number(newDefectRow.quantity));
-      setAddingDefectWoId(null); setNewDefectRow({ defect_type_id: "", quantity: "" });
+      await addWorkOrderDefect(woId, Number(newDefectRow.defect_type_id), 1);
+      setAddingDefectWoId(null); setNewDefectRow({ defect_type_id: "" });
       const defects = await getWorkOrderDefects(woId);
       setWoDefects(prev => ({ ...prev, [woId]: defects }));
       const orders = await getWorkOrders();
@@ -321,13 +319,11 @@ export default function WorkOrderPanel({ onSaved, unreadIds = new Set(), onMarkR
   const dpuArrow = dpuRaw === null ? "" : prevDpuRaw !== null && dpuRaw < prevDpuRaw ? "↓ " : prevDpuRaw !== null && dpuRaw > prevDpuRaw ? "↑ " : "→ ";
   const totalFiltered = filteredDefects.reduce((sum, d) => sum + d.quantity, 0);
 
-  // Custom bar with per-bar color
   function CustomBar(props) {
     const { x, y, width, height, fill } = props;
     return <rect x={x} y={y} width={width} height={height} fill={fill} rx={3} />;
   }
 
-  // Custom Pareto tooltip
   const ParetoTooltip = ({ active, payload, label }) => {
     if (!active || !payload?.length) return null;
     const d = payload[0]?.payload;
@@ -341,7 +337,6 @@ export default function WorkOrderPanel({ onSaved, unreadIds = new Set(), onMarkR
     );
   };
 
-  // Vital few callout
   const vitalFew = useMemo(() => {
     if (paretoData.length === 0) return null;
     const idx = paretoData.findIndex(d => d.cumPct > 80);
@@ -377,7 +372,9 @@ export default function WorkOrderPanel({ onSaved, unreadIds = new Set(), onMarkR
               {woRows.map(row => (
                 <div key={row.id} style={{ border: "0.5px solid #eee", borderRadius: 10, overflow: "hidden", marginBottom: 12 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: "#fafafa", borderBottom: "0.5px solid #eee" }}>
-                    <input type="text" maxLength={6} value={row.work_order_num} onChange={e => updateWORow(row.id, "work_order_num", e.target.value.replace(/[^0-9]/g, "").slice(0, 6))} placeholder="Work order #" style={{ ...inputStyle, width: 130 }} />
+                    <input type="text" value={row.work_order_num}
+                      onChange={e => updateWORow(row.id, "work_order_num", e.target.value.toUpperCase())}
+                      placeholder="Work order #" style={{ ...inputStyle, width: 150 }} />
                     <select value={row.truck_type_id} onChange={e => updateWORow(row.id, "truck_type_id", e.target.value)} style={{ ...inputStyle, width: 140 }}>
                       <option value="">Truck type…</option>
                       {truckTypes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
@@ -389,7 +386,6 @@ export default function WorkOrderPanel({ onSaved, unreadIds = new Set(), onMarkR
                     <thead>
                       <tr style={{ background: "#fafafa", borderBottom: "0.5px solid #f0f0f0" }}>
                         <th style={{ padding: "6px 14px", fontWeight: 500, color: "#555", textAlign: "left", fontSize: 11 }}>Defect type</th>
-                        <th style={{ padding: "6px 14px", fontWeight: 500, color: "#555", textAlign: "left", fontSize: 11, width: 90 }}>Quantity</th>
                         <th style={{ width: 40 }}></th>
                       </tr>
                     </thead>
@@ -401,9 +397,6 @@ export default function WorkOrderPanel({ onSaved, unreadIds = new Set(), onMarkR
                               <option value="">Select defect type…</option>
                               {defectTypes.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
                             </select>
-                          </td>
-                          <td style={{ padding: "6px 14px" }}>
-                            <input type="number" min="0" value={dr.quantity} onChange={e => updateDefectRow(row.id, dr.id, "quantity", e.target.value)} placeholder="0" style={{ ...inputStyle, width: 70 }} />
                           </td>
                           <td style={{ padding: "6px 14px" }}>
                             {row.defect_rows.length > 1 && <button type="button" onClick={() => removeDefectRow(row.id, dr.id)} style={{ background: "none", border: "none", fontSize: 14, cursor: "pointer", color: "#aaa" }}>✕</button>}
@@ -507,101 +500,100 @@ export default function WorkOrderPanel({ onSaved, unreadIds = new Set(), onMarkR
           <p style={{ textAlign: "center", color: "#aaa", fontSize: 13, padding: "40px 0" }}>No defect breakdown data for this period. Add defect types to work orders to see charts.</p>
         ) : (
           <>
-            {/* Top row — Pareto + DPU by Truck Type */}
-<div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 32, marginBottom: 24 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 32, marginBottom: 24 }}>
 
-  {/* PARETO */}
-  <div>
-    <p style={{ fontSize: 13, fontWeight: 500, color: "#555", margin: "0 0 4px" }}>Pareto — Defects by Type</p>
-    <p style={{ fontSize: 11, color: "#aaa", margin: "0 0 12px" }}>Sorted Most → Least · Cumulative % Line</p>
-    <ResponsiveContainer width="100%" height={240}>
-      <ComposedChart data={paretoData} margin={{ top: 4, right: 40, left: -20, bottom: 0 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
-        <XAxis dataKey="name" tick={{ fontSize: 9 }} angle={-20} textAnchor="end" interval={0} height={48} />
-        <YAxis yAxisId="left"  tick={{ fontSize: 10 }} allowDecimals={false} />
-        <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10 }} domain={[0, 100]} tickFormatter={v => `${v}%`} />
-        <Tooltip content={<ParetoTooltip />} />
-        <Bar yAxisId="left" dataKey="count" name="Count" shape={<CustomBar />} />
-        <Line yAxisId="right" type="monotone" dataKey="cumPct"     name="Cumulative %" stroke="#E24B4A" strokeWidth={2} dot={{ r: 3, fill: "#E24B4A" }} />
-        <Line yAxisId="right" type="monotone" dataKey="eightyLine" name="80% threshold" stroke="#aaa" strokeWidth={1} strokeDasharray="5 4" dot={false} legendType="line" />
-      </ComposedChart>
-    </ResponsiveContainer>
-    {vitalFew && (
-      <div style={{ marginTop: 10, padding: "8px 12px", background: "#f0faf6", border: "0.5px solid #1D9E75", borderRadius: 8, fontSize: 11, color: "#0F6E56" }}>
-        <strong>Vital few:</strong> {vitalFew.names.join(", ")} account for {vitalFew.cumPct}% of all defects this period.
-      </div>
-    )}
-    <div style={{ display: "flex", gap: 16, marginTop: 8, fontSize: 11, color: "#888", flexWrap: "wrap" }}>
-      <span style={{ display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 10, height: 10, borderRadius: 2, background: "#378ADD", display: "inline-block" }} />Count</span>
-      <span style={{ display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 16, height: 2, background: "#E24B4A", display: "inline-block" }} />Cumulative %</span>
-      <span style={{ display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 16, borderTop: "2px dashed #aaa", display: "inline-block" }} />80% threshold</span>
-    </div>
-  </div>
+              {/* PARETO */}
+              <div>
+                <p style={{ fontSize: 13, fontWeight: 500, color: "#555", margin: "0 0 4px" }}>Pareto — Defects by Type</p>
+                <p style={{ fontSize: 11, color: "#aaa", margin: "0 0 12px" }}>Sorted Most → Least · Cumulative % Line</p>
+                <ResponsiveContainer width="100%" height={240}>
+                  <ComposedChart data={paretoData} margin={{ top: 4, right: 40, left: -20, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
+                    <XAxis dataKey="name" tick={{ fontSize: 9 }} angle={-20} textAnchor="end" interval={0} height={48} />
+                    <YAxis yAxisId="left"  tick={{ fontSize: 10 }} allowDecimals={false} />
+                    <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10 }} domain={[0, 100]} tickFormatter={v => `${v}%`} />
+                    <Tooltip content={<ParetoTooltip />} />
+                    <Bar yAxisId="left" dataKey="count" name="Count" shape={<CustomBar />} />
+                    <Line yAxisId="right" type="monotone" dataKey="cumPct"     name="Cumulative %" stroke="#E24B4A" strokeWidth={2} dot={{ r: 3, fill: "#E24B4A" }} />
+                    <Line yAxisId="right" type="monotone" dataKey="eightyLine" name="80% Threshold" stroke="#aaa" strokeWidth={1} strokeDasharray="5 4" dot={false} legendType="line" />
+                  </ComposedChart>
+                </ResponsiveContainer>
+                {vitalFew && (
+                  <div style={{ marginTop: 10, padding: "8px 12px", background: "#f0faf6", border: "0.5px solid #1D9E75", borderRadius: 8, fontSize: 11, color: "#0F6E56" }}>
+                    <strong>Vital few:</strong> {vitalFew.names.join(", ")} account for {vitalFew.cumPct}% of all defects this period.
+                  </div>
+                )}
+                <div style={{ display: "flex", gap: 16, marginTop: 8, fontSize: 11, color: "#888", flexWrap: "wrap" }}>
+                  <span style={{ display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 10, height: 10, borderRadius: 2, background: "#378ADD", display: "inline-block" }} />Count</span>
+                  <span style={{ display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 16, height: 2, background: "#E24B4A", display: "inline-block" }} />Cumulative %</span>
+                  <span style={{ display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 16, borderTop: "2px dashed #aaa", display: "inline-block" }} />80% Threshold</span>
+                </div>
+              </div>
 
-  {/* DPU BY TRUCK TYPE */}
-  <div>
-    <p style={{ fontSize: 13, fontWeight: 500, color: "#555", margin: "0 0 4px" }}>DPU by Truck Type</p>
-    <p style={{ fontSize: 11, color: "#aaa", margin: "0 0 12px" }}>AVG Defects per Unit — filtered period</p>
-    {(() => {
-        const byTruck = {};
-        const since = getDateRange(chartPeriod);
-        workOrders
-          .filter(wo => (!since || wo.week_start >= since) && (chartTruckType === "all" || wo.truck_type === chartTruckType))
-          .forEach(wo => {
-          if (!byTruck[wo.truck_type]) byTruck[wo.truck_type] = { defects: 0, count: 0 };
-          byTruck[wo.truck_type].defects += wo.total_defects;
-          byTruck[wo.truck_type].count   += 1;
-        });
-      const dpuByTruck = Object.entries(byTruck)
-        .filter(([name]) => name && name !== "n/a")
-        .map(([name, d]) => ({
-          name,
-          dpu:   Math.round((d.defects / d.count) * 100) / 100,
-          count: d.count,
-        }))
-        .sort((a, b) => b.dpu - a.dpu);
+              {/* DPU BY TRUCK TYPE */}
+              <div>
+                <p style={{ fontSize: 13, fontWeight: 500, color: "#555", margin: "0 0 4px" }}>DPU by Truck Type</p>
+                <p style={{ fontSize: 11, color: "#aaa", margin: "0 0 12px" }}>AVG Defects per Unit — filtered period</p>
+                {(() => {
+                  const byTruck = {};
+                  const since = getDateRange(chartPeriod);
+                  workOrders
+                    .filter(wo => (!since || wo.week_start >= since) && (chartTruckType === "all" || wo.truck_type === chartTruckType))
+                    .forEach(wo => {
+                      if (!byTruck[wo.truck_type]) byTruck[wo.truck_type] = { defects: 0, count: 0 };
+                      byTruck[wo.truck_type].defects += wo.total_defects;
+                      byTruck[wo.truck_type].count   += 1;
+                    });
+                  const dpuByTruck = Object.entries(byTruck)
+                    .filter(([name]) => name && name !== "n/a")
+                    .map(([name, d]) => ({
+                      name,
+                      dpu:   Math.round((d.defects / d.count) * 100) / 100,
+                      count: d.count,
+                    }))
+                    .sort((a, b) => b.dpu - a.dpu);
 
-      if (dpuByTruck.length === 0) return <p style={{ fontSize: 12, color: "#aaa", textAlign: "center", paddingTop: 80 }}>No data for this period.</p>;
+                  if (dpuByTruck.length === 0) return <p style={{ fontSize: 12, color: "#aaa", textAlign: "center", paddingTop: 80 }}>No data for this period.</p>;
 
-      const maxDpu = Math.max(...dpuByTruck.map(d => d.dpu));
+                  const maxDpu = Math.max(...dpuByTruck.map(d => d.dpu));
 
-      const DpuTooltip = ({ active, payload, label }) => {
-        if (!active || !payload?.length) return null;
-        const d = payload[0]?.payload;
-        return (
-          <div style={{ background: "#fff", border: "0.5px solid #eee", borderRadius: 8, padding: "10px 14px", fontSize: 12 }}>
-            <p style={{ margin: "0 0 4px", fontWeight: 500, color: "#333" }}>{label}</p>
-            <p style={{ margin: "0 0 2px", color: "#378ADD" }}>DPU: <strong>{d?.dpu}</strong></p>
-            <p style={{ margin: 0, color: "#888" }}>{d?.count} work order{d?.count !== 1 ? "s" : ""}</p>
-          </div>
-        );
-      };
+                  const DpuTooltip = ({ active, payload, label }) => {
+                    if (!active || !payload?.length) return null;
+                    const d = payload[0]?.payload;
+                    return (
+                      <div style={{ background: "#fff", border: "0.5px solid #eee", borderRadius: 8, padding: "10px 14px", fontSize: 12 }}>
+                        <p style={{ margin: "0 0 4px", fontWeight: 500, color: "#333" }}>{label}</p>
+                        <p style={{ margin: "0 0 2px", color: "#378ADD" }}>DPU: <strong>{d?.dpu}</strong></p>
+                        <p style={{ margin: 0, color: "#888" }}>{d?.count} work order{d?.count !== 1 ? "s" : ""}</p>
+                      </div>
+                    );
+                  };
 
-      return (
-        <ResponsiveContainer width="100%" height={240}>
-          <BarChart data={dpuByTruck} layout="vertical" margin={{ top: 0, right: 50, left: 0, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" horizontal={false} />
-            <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={v => v.toFixed(2)} />
-            <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={90} />
-            <Tooltip content={<DpuTooltip />} />
-            <Bar dataKey="dpu" name="DPU" radius={[0, 3, 3, 0]}
-              label={{ position: "right", fontSize: 10, fill: "#888", formatter: v => v.toFixed(2) }}>
-              {dpuByTruck.map((entry) => (
-                <Cell key={entry.name} fill={
-                  entry.dpu > maxDpu * 0.66 ? "#E24B4A" :
-                  entry.dpu > maxDpu * 0.33 ? "#854F0B" : "#1D9E75"
-                } />
-              ))}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
-      );
-    })()}
-    <p style={{ fontSize: 10, color: "#aaa", margin: "6px 0 0" }}>
-      Green = Lowest DPU · Amber = Moderate · Red = Highest DPU
-    </p>
-  </div>
-</div>
+                  return (
+                    <ResponsiveContainer width="100%" height={240}>
+                      <BarChart data={dpuByTruck} layout="vertical" margin={{ top: 0, right: 50, left: 0, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" horizontal={false} />
+                        <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={v => v.toFixed(2)} />
+                        <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={90} />
+                        <Tooltip content={<DpuTooltip />} />
+                        <Bar dataKey="dpu" name="DPU" radius={[0, 3, 3, 0]}
+                          label={{ position: "right", fontSize: 10, fill: "#888", formatter: v => v.toFixed(2) }}>
+                          {dpuByTruck.map((entry) => (
+                            <Cell key={entry.name} fill={
+                              entry.dpu > maxDpu * 0.66 ? "#E24B4A" :
+                              entry.dpu > maxDpu * 0.33 ? "#854F0B" : "#1D9E75"
+                            } />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  );
+                })()}
+                <p style={{ fontSize: 10, color: "#aaa", margin: "6px 0 0" }}>
+                  Green = Lowest DPU · Amber = Moderate · Red = Highest DPU
+                </p>
+              </div>
+            </div>
 
             {/* Bottom — stacked bar by week */}
             <div>
@@ -693,7 +685,7 @@ export default function WorkOrderPanel({ onSaved, unreadIds = new Set(), onMarkR
                         <>
                           <tr key={wo.id} style={{ borderBottom: "0.5px solid #f5f5f5", background: "white" }}>
                             <td style={{ padding: "6px 16px" }}>
-                              {editingId === wo.id ? <input type="text" maxLength={6} value={editValues.work_order_num} onChange={e => setEditValues(prev => ({ ...prev, work_order_num: e.target.value.replace(/[^0-9]/g, "").slice(0, 6) }))} style={{ ...inputStyle, width: 100 }} /> : wo.work_order_num}
+                              {editingId === wo.id ? <input type="text" value={editValues.work_order_num} onChange={e => setEditValues(prev => ({ ...prev, work_order_num: e.target.value.toUpperCase() }))} style={{ ...inputStyle, width: 120 }} /> : wo.work_order_num}
                             </td>
                             <td style={{ padding: "6px 16px" }}>
                               {editingId === wo.id ? (
@@ -734,7 +726,6 @@ export default function WorkOrderPanel({ onSaved, unreadIds = new Set(), onMarkR
                                     <thead>
                                       <tr>
                                         <th style={{ padding: "4px 8px", fontWeight: 500, color: "#888", textAlign: "left" }}>Defect type</th>
-                                        <th style={{ padding: "4px 8px", fontWeight: 500, color: "#888", textAlign: "left", width: 80 }}>Quantity</th>
                                         <th style={{ width: 110 }}></th>
                                       </tr>
                                     </thead>
@@ -747,9 +738,6 @@ export default function WorkOrderPanel({ onSaved, unreadIds = new Set(), onMarkR
                                                 {defectTypes.map(dt => <option key={dt.id} value={dt.id}>{dt.name}</option>)}
                                               </select>
                                             ) : d.defect_type_name}
-                                          </td>
-                                          <td style={{ padding: "4px 8px", color: "#333" }}>
-                                            {editingDefectId === d.id ? <input type="number" min="0" value={editDefectValues.quantity} onChange={e => setEditDefectValues(prev => ({ ...prev, quantity: e.target.value }))} style={{ ...inputStyle, width: 60 }} /> : d.quantity}
                                           </td>
                                           <td style={{ padding: "4px 8px" }}>
                                             {editingDefectId === d.id ? (
@@ -777,12 +765,11 @@ export default function WorkOrderPanel({ onSaved, unreadIds = new Set(), onMarkR
                                       <option value="">Select defect type…</option>
                                       {defectTypes.map(dt => <option key={dt.id} value={dt.id}>{dt.name}</option>)}
                                     </select>
-                                    <input type="number" min="0" value={newDefectRow.quantity} onChange={e => setNewDefectRow(prev => ({ ...prev, quantity: e.target.value }))} placeholder="Qty" style={{ ...inputStyle, width: 60 }} />
-                                    <button onClick={() => handleAddDefect(wo.id)} disabled={defectSaving || !newDefectRow.defect_type_id || !newDefectRow.quantity} style={{ padding: "4px 12px", fontSize: 11, border: "1px solid #1D9E75", background: "#E1F5EE", color: "#0F6E56", borderRadius: 6, cursor: "pointer" }}>{defectSaving ? "…" : "Add"}</button>
-                                    <button onClick={() => { setAddingDefectWoId(null); setNewDefectRow({ defect_type_id: "", quantity: "" }); }} style={{ padding: "4px 8px", fontSize: 11, border: "0.5px solid #ddd", background: "#fff", color: "#888", borderRadius: 6, cursor: "pointer" }}>Cancel</button>
+                                    <button onClick={() => handleAddDefect(wo.id)} disabled={defectSaving || !newDefectRow.defect_type_id} style={{ padding: "4px 12px", fontSize: 11, border: "1px solid #1D9E75", background: "#E1F5EE", color: "#0F6E56", borderRadius: 6, cursor: "pointer" }}>{defectSaving ? "…" : "Add"}</button>
+                                    <button onClick={() => { setAddingDefectWoId(null); setNewDefectRow({ defect_type_id: "" }); }} style={{ padding: "4px 8px", fontSize: 11, border: "0.5px solid #ddd", background: "#fff", color: "#888", borderRadius: 6, cursor: "pointer" }}>Cancel</button>
                                   </div>
                                 ) : (
-                                  <button onClick={() => { setAddingDefectWoId(wo.id); setNewDefectRow({ defect_type_id: "", quantity: "" }); }} style={{ padding: "3px 10px", fontSize: 11, border: "0.5px dashed #ddd", borderRadius: 6, background: "transparent", color: "#888", cursor: "pointer", fontFamily: "inherit" }}>+ add defect type</button>
+                                  <button onClick={() => { setAddingDefectWoId(wo.id); setNewDefectRow({ defect_type_id: "" }); }} style={{ padding: "3px 10px", fontSize: 11, border: "0.5px dashed #ddd", borderRadius: 6, background: "transparent", color: "#888", cursor: "pointer", fontFamily: "inherit" }}>+ add defect type</button>
                                 )}
                               </td>
                             </tr>

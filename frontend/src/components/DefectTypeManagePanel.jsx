@@ -56,7 +56,7 @@ export default function DefectTypeManagePanel({ onChanged }) {
         }}>
           <div style={{
             background: "#fff", borderRadius: 12, padding: 28,
-            width: "90%", maxWidth: 420,
+            width: "90%", maxWidth: 420, maxHeight: "85vh", overflowY: "auto",
             boxShadow: "0 8px 32px rgba(0,0,0,0.12)",
           }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
@@ -93,7 +93,7 @@ export default function DefectTypeManagePanel({ onChanged }) {
 
             {error && <p style={{ fontSize: 12, color: "#A32D2D", margin: "0 0 12px" }}>{error}</p>}
 
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 320, overflowY: "auto" }}>
               {types.length === 0 && (
                 <p style={{ fontSize: 13, color: "#aaa", textAlign: "center", padding: 16 }}>
                   No defect types added yet.
