@@ -9,8 +9,10 @@ import {
   getWorkOrders, createWorkOrder, deleteWorkOrder,
   getTruckTypes, getDefectTypes,
   getWorkOrderDefects, addWorkOrderDefect, deleteWorkOrderDefect,
-  getAllDefectBreakdowns,
+  getAllDefectBreakdowns, updateWorkOrder,
 } from "../api/issues";
+
+const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 
 function getWeekStart() {
   const d = new Date();
@@ -38,19 +40,6 @@ function formatWeekRange(weekStart) {
   return `${startStr} - ${endStr}`;
 }
 
-function getDateRange(period) {
-  const today = new Date();
-  if (period === "week") {
-    const d = new Date();
-    d.setDate(d.getDate() - d.getDay() - 6);
-    return d.toISOString().split("T")[0];
-  }
-  if (period === "month")   return new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split("T")[0];
-  if (period === "quarter") { const q = Math.floor(today.getMonth() / 3); return new Date(today.getFullYear(), q * 3, 1).toISOString().split("T")[0]; }
-  if (period === "year")    return new Date(today.getFullYear(), 0, 1).toISOString().split("T")[0];
-  return null;
-}
-
 const CHART_COLORS = ["#1D9E75", "#378ADD", "#E24B4A", "#854F0B", "#533AB7", "#0F6E56", "#A32D2D", "#0C447C"];
 
 let nextId = 1;
@@ -64,6 +53,8 @@ function emptyDefectRow() {
 }
 
 export default function WorkOrderPanel({ onSaved, unreadIds = new Set(), onMarkRead }) {
+  const today = new Date();
+
   const [workOrders, setWorkOrders]             = useState([]);
   const [truckTypes, setTruckTypes]             = useState([]);
   const [defectTypes, setDefectTypes]           = useState([]);
@@ -71,6 +62,9 @@ export default function WorkOrderPanel({ onSaved, unreadIds = new Set(), onMarkR
   const [showModal, setShowModal]               = useState(false);
   const [showHistory, setShowHistory]           = useState(false);
   const [chartPeriod, setChartPeriod]           = useState("quarter");
+  const [chartYear, setChartYear]               = useState(today.getFullYear());
+  const [chartMonth, setChartMonth]             = useState(today.getMonth());
+  const [chartQuarter, setChartQuarter]         = useState(Math.floor(today.getMonth() / 3));
   const [chartTruckType, setChartTruckType]     = useState("all");
   const [weekStart, setWeekStart]               = useState(getWeekStart());
   const [woRows, setWoRows]                     = useState([emptyWORow(nextId++)]);
@@ -82,8 +76,9 @@ export default function WorkOrderPanel({ onSaved, unreadIds = new Set(), onMarkR
   const [woDefects, setWoDefects]               = useState({});
   const [editingId, setEditingId]               = useState(null);
   const [editValues, setEditValues]             = useState({});
+  const [pendingEdits, setPendingEdits]         = useState({});
   const [confirmWeek, setConfirmWeek]           = useState(null);
-  const [selectedYear, setSelectedYear]         = useState(new Date().getFullYear());
+  const [selectedYear, setSelectedYear]         = useState(today.getFullYear());
   const [editingDefectId, setEditingDefectId]   = useState(null);
   const [editDefectValues, setEditDefectValues] = useState({});
   const [addingDefectWoId, setAddingDefectWoId] = useState(null);
@@ -117,14 +112,66 @@ export default function WorkOrderPanel({ onSaved, unreadIds = new Set(), onMarkR
     setWoDefects(prev => ({ ...prev, [woId]: data }));
   }
 
+  const availableYears = useMemo(() => {
+    const years = new Set(workOrders.map(wo => new Date(wo.week_start + "T12:00:00").getFullYear()));
+    years.add(today.getFullYear());
+    return [...years].sort((a, b) => b - a);
+  }, [workOrders]);
+
+  const availableChartMonths = useMemo(() => {
+    const ms = new Set(allDefects
+      .filter(d => new Date(d.week_start).getFullYear() === chartYear)
+      .map(d => new Date(d.week_start).getMonth()));
+    return [...ms].sort((a, b) => a - b);
+  }, [allDefects, chartYear]);
+
+  const availableChartQuarters = useMemo(() => {
+    const qs = new Set(allDefects
+      .filter(d => new Date(d.week_start).getFullYear() === chartYear)
+      .map(d => Math.floor(new Date(d.week_start).getMonth() / 3)));
+    return [...qs].sort((a, b) => a - b);
+  }, [allDefects, chartYear]);
+
+  function onChartYearChange(year) {
+    setChartYear(year);
+    if (chartPeriod === "month") {
+      const ms = [...new Set(allDefects.filter(d => new Date(d.week_start).getFullYear() === year).map(d => new Date(d.week_start).getMonth()))].sort((a, b) => a - b);
+      setChartMonth(ms[ms.length - 1] ?? 0);
+    } else if (chartPeriod === "quarter") {
+      const qs = [...new Set(allDefects.filter(d => new Date(d.week_start).getFullYear() === year).map(d => Math.floor(new Date(d.week_start).getMonth() / 3)))].sort((a, b) => a - b);
+      setChartQuarter(qs[qs.length - 1] ?? 0);
+    }
+  }
+
+  function onChartPeriodChange(p) {
+    setChartPeriod(p);
+    if (p === "month") {
+      const ms = [...new Set(allDefects.filter(d => new Date(d.week_start).getFullYear() === chartYear).map(d => new Date(d.week_start).getMonth()))].sort((a, b) => a - b);
+      setChartMonth(ms[ms.length - 1] ?? today.getMonth());
+    } else if (p === "quarter") {
+      const qs = [...new Set(allDefects.filter(d => new Date(d.week_start).getFullYear() === chartYear).map(d => Math.floor(new Date(d.week_start).getMonth() / 3)))].sort((a, b) => a - b);
+      setChartQuarter(qs[qs.length - 1] ?? Math.floor(today.getMonth() / 3));
+    }
+  }
+
+  function matchesPeriod(weekStr) {
+    const d  = new Date(weekStr);
+    const yr = d.getFullYear();
+    const mo = d.getMonth();
+    if (chartPeriod === "week")    return weekStr >= getLastWeekStart();
+    if (chartPeriod === "month")   return yr === chartYear && mo === chartMonth;
+    if (chartPeriod === "quarter") return yr === chartYear && Math.floor(mo / 3) === chartQuarter;
+    if (chartPeriod === "year")    return yr === chartYear;
+    return true;
+  }
+
   const filteredDefects = useMemo(() => {
-    const since = getDateRange(chartPeriod);
-    return allDefects.filter(d => {
-      const inPeriod = !since || d.week_start >= since;
-      const inTruck  = chartTruckType === "all" || d.truck_type === chartTruckType;
-      return inPeriod && inTruck;
-    });
-  }, [allDefects, chartPeriod, chartTruckType]);
+    return allDefects.filter(d => matchesPeriod(d.week_start) && (chartTruckType === "all" || d.truck_type === chartTruckType));
+  }, [allDefects, chartPeriod, chartYear, chartMonth, chartQuarter, chartTruckType]);
+
+  const filteredWorkOrders = useMemo(() => {
+    return workOrders.filter(wo => matchesPeriod(wo.week_start) && (chartTruckType === "all" || wo.truck_type === chartTruckType));
+  }, [workOrders, chartPeriod, chartYear, chartMonth, chartQuarter, chartTruckType]);
 
   const pieData = useMemo(() => {
     const totals = {};
@@ -138,14 +185,7 @@ export default function WorkOrderPanel({ onSaved, unreadIds = new Set(), onMarkR
     let cumulative = 0;
     return pieData.map((d, i) => {
       cumulative += d.value;
-      return {
-        name:       d.name,
-        count:      d.value,
-        pct:        Math.round((d.value / total) * 100),
-        cumPct:     Math.round((cumulative / total) * 100),
-        fill:       CHART_COLORS[i % CHART_COLORS.length],
-        eightyLine: 80,
-      };
+      return { name: d.name, count: d.value, pct: Math.round((d.value / total) * 100), cumPct: Math.round((cumulative / total) * 100), fill: CHART_COLORS[i % CHART_COLORS.length], eightyLine: 80 };
     });
   }, [pieData]);
 
@@ -156,21 +196,13 @@ export default function WorkOrderPanel({ onSaved, unreadIds = new Set(), onMarkR
       byWeek[d.week_start][d.defect_type] = (byWeek[d.week_start][d.defect_type] || 0) + d.quantity;
     });
     const allTypes = [...new Set(filteredDefects.map(d => d.defect_type))];
-    return Object.entries(byWeek)
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([week, counts]) => ({
-        week: new Date(week + "T12:00:00").toLocaleDateString([], { month: "short", day: "numeric" }),
-        ...allTypes.reduce((acc, t) => ({ ...acc, [t]: counts[t] || 0 }), {}),
-      }));
+    return Object.entries(byWeek).sort(([a], [b]) => a.localeCompare(b)).map(([week, counts]) => ({
+      week: new Date(week + "T12:00:00").toLocaleDateString([], { month: "short", day: "numeric" }),
+      ...allTypes.reduce((acc, t) => ({ ...acc, [t]: counts[t] || 0 }), {}),
+    }));
   }, [filteredDefects]);
 
   const barTypes = useMemo(() => [...new Set(filteredDefects.map(d => d.defect_type))], [filteredDefects]);
-
-  const availableYears = useMemo(() => {
-    const years = new Set(workOrders.map(wo => new Date(wo.week_start + "T12:00:00").getFullYear()));
-    years.add(new Date().getFullYear());
-    return [...years].sort((a, b) => b - a);
-  }, [workOrders]);
 
   function openModal() { setWoRows([emptyWORow(nextId++)]); setWeekStart(getWeekStart()); setError(null); setShowModal(true); }
   function closeModal() { setShowModal(false); setWoRows([emptyWORow(nextId++)]); setError(null); }
@@ -248,13 +280,49 @@ export default function WorkOrderPanel({ onSaved, unreadIds = new Set(), onMarkR
     setTimeout(() => { try { w.print(); } catch (e) {} }, 400);
   }
 
-  function startEdit(wo) { setEditingId(wo.id); setEditValues({ work_order_num: wo.work_order_num, truck_type: wo.truck_type, total_defects: wo.total_defects }); }
+  // Open a work order for editing — stores values keyed by wo.id so multiple can be open
+  function startEdit(wo) {
+    setEditingId(wo.id);
+    setEditValues(prev => ({
+      ...prev,
+      [wo.id]: { work_order_num: wo.work_order_num, truck_type: wo.truck_type, total_defects: wo.total_defects },
+    }));
+  }
 
-  async function saveEdit(wo) {
-    await deleteWorkOrder(wo.id);
-    await createWorkOrder({ work_order_num: editValues.work_order_num, truck_type: editValues.truck_type, units_completed: 1, total_defects: Number(editValues.total_defects), week_start: wo.week_start });
-    setEditingId(null); setEditValues({}); load();
-    if (onSaved) onSaved();
+  // Queue the edit locally without saving yet
+  function queueEdit(woId) {
+    const vals = editValues[woId];
+    if (!vals) return;
+    setPendingEdits(prev => ({ ...prev, [woId]: vals }));
+    setEditingId(null);
+  }
+
+  // Save all queued edits at once
+  async function saveAllEdits() {
+    if (Object.keys(pendingEdits).length === 0) return;
+    setSaving(true);
+    console.log("saving edits:", pendingEdits);
+    try {
+      await Promise.all(
+        Object.entries(pendingEdits).map(([id, vals]) =>
+          updateWorkOrder(Number(id), {
+            work_order_num: vals.work_order_num,
+            truck_type:     vals.truck_type,
+            total_defects:  Number(vals.total_defects),
+          })
+        )
+      );
+      setPendingEdits({});
+      setEditValues({});
+      setSuccessMsg(`${Object.keys(pendingEdits).length} work order${Object.keys(pendingEdits).length !== 1 ? "s" : ""} updated.`);
+      setTimeout(() => setSuccessMsg(null), 3000);
+      load();
+      if (onSaved) onSaved();
+    } catch (err) {
+      setError("Save failed. Please try again.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   function startEditDefect(d) { setEditingDefectId(d.id); setEditDefectValues({ defect_type_id: String(d.defect_type_id) }); }
@@ -345,12 +413,21 @@ export default function WorkOrderPanel({ onSaved, unreadIds = new Set(), onMarkR
     return { names: vital.map(d => d.name), cumPct: vital[vital.length - 1].cumPct };
   }, [paretoData]);
 
+  const subSelectStyle = { padding: "4px 8px", fontSize: 11, border: "1px solid #eee", borderRadius: 6, fontFamily: "inherit", background: "#fff", color: "#555" };
+
   const filterBtnStyle = (active, color = "#1D9E75", bg = "#E1F5EE", tc = "#0F6E56") => ({
     padding: "5px 12px", fontSize: 12, borderRadius: 6, cursor: "pointer", fontFamily: "inherit",
     border: `1px solid ${active ? color : "#ddd"}`,
     background: active ? bg : "#fff",
     color: active ? tc : "#555",
   });
+
+  const periodLabel = chartPeriod === "week" ? "Last week"
+    : chartPeriod === "month"   ? `${MONTHS[chartMonth]} ${chartYear}`
+    : chartPeriod === "quarter" ? `Q${chartQuarter + 1} ${chartYear}`
+    : `${chartYear}`;
+
+  const pendingCount = Object.keys(pendingEdits).length;
 
   return (
     <div style={{ marginBottom: 24 }}>
@@ -372,9 +449,7 @@ export default function WorkOrderPanel({ onSaved, unreadIds = new Set(), onMarkR
               {woRows.map(row => (
                 <div key={row.id} style={{ border: "0.5px solid #eee", borderRadius: 10, overflow: "hidden", marginBottom: 12 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: "#fafafa", borderBottom: "0.5px solid #eee" }}>
-                    <input type="text" value={row.work_order_num}
-                      onChange={e => updateWORow(row.id, "work_order_num", e.target.value.toUpperCase())}
-                      placeholder="Work order #" style={{ ...inputStyle, width: 150 }} />
+                    <input type="text" value={row.work_order_num} onChange={e => updateWORow(row.id, "work_order_num", e.target.value.toUpperCase())} placeholder="Work order #" style={{ ...inputStyle, width: 150 }} />
                     <select value={row.truck_type_id} onChange={e => updateWORow(row.id, "truck_type_id", e.target.value)} style={{ ...inputStyle, width: 140 }}>
                       <option value="">Truck type…</option>
                       {truckTypes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
@@ -473,20 +548,36 @@ export default function WorkOrderPanel({ onSaved, unreadIds = new Set(), onMarkR
       </div>
 
       {successMsg && <div style={{ padding: "10px 14px", background: "#E1F5EE", borderRadius: 8, fontSize: 13, color: "#0F6E56", marginBottom: 12 }}>{successMsg}</div>}
+      {error && <div style={{ padding: "10px 14px", background: "#FCEBEB", borderRadius: 8, fontSize: 13, color: "#A32D2D", marginBottom: 12 }}>{error}</div>}
 
       {/* DEFECT CHARTS */}
       <div style={{ border: "0.5px solid #eee", borderRadius: 10, padding: 20, marginBottom: 16 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
           <p style={{ fontSize: 14, fontWeight: 500, color: "#333", margin: 0 }}>
             Defect Type Analysis
-            {totalFiltered > 0 && <span style={{ fontSize: 12, color: "#aaa", fontWeight: 400, marginLeft: 8 }}>({totalFiltered} total defects)</span>}
+            {totalFiltered > 0 && <span style={{ fontSize: 12, color: "#aaa", fontWeight: 400, marginLeft: 8 }}>({totalFiltered} total defects · {periodLabel})</span>}
           </p>
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
             <div style={{ display: "flex", gap: 4 }}>
               {[{ key: "week", label: "Last week" }, { key: "month", label: "Month" }, { key: "quarter", label: "Quarter" }, { key: "year", label: "Year" }].map(p => (
-                <button key={p.key} onClick={() => setChartPeriod(p.key)} style={filterBtnStyle(chartPeriod === p.key)}>{p.label}</button>
+                <button key={p.key} onClick={() => onChartPeriodChange(p.key)} style={filterBtnStyle(chartPeriod === p.key)}>{p.label}</button>
               ))}
             </div>
+            {chartPeriod !== "week" && availableYears.length > 1 && (
+              <select value={chartYear} onChange={e => onChartYearChange(Number(e.target.value))} style={subSelectStyle}>
+                {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
+              </select>
+            )}
+            {chartPeriod === "month" && availableChartMonths.length > 0 && (
+              <select value={chartMonth} onChange={e => setChartMonth(Number(e.target.value))} style={subSelectStyle}>
+                {availableChartMonths.map(m => <option key={m} value={m}>{MONTHS[m]}</option>)}
+              </select>
+            )}
+            {chartPeriod === "quarter" && availableChartQuarters.length > 0 && (
+              <select value={chartQuarter} onChange={e => setChartQuarter(Number(e.target.value))} style={subSelectStyle}>
+                {availableChartQuarters.map(q => <option key={q} value={q}>Q{q + 1}</option>)}
+              </select>
+            )}
             <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
               <button onClick={() => setChartTruckType("all")} style={filterBtnStyle(chartTruckType === "all", "#378ADD", "#E6F1FB", "#0C447C")}>All</button>
               {truckTypes.map(t => (
@@ -501,8 +592,6 @@ export default function WorkOrderPanel({ onSaved, unreadIds = new Set(), onMarkR
         ) : (
           <>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 32, marginBottom: 24 }}>
-
-              {/* PARETO */}
               <div>
                 <p style={{ fontSize: 13, fontWeight: 500, color: "#555", margin: "0 0 4px" }}>Pareto — Defects by Type</p>
                 <p style={{ fontSize: 11, color: "#aaa", margin: "0 0 12px" }}>Sorted Most → Least · Cumulative % Line</p>
@@ -530,33 +619,22 @@ export default function WorkOrderPanel({ onSaved, unreadIds = new Set(), onMarkR
                 </div>
               </div>
 
-              {/* DPU BY TRUCK TYPE */}
               <div>
                 <p style={{ fontSize: 13, fontWeight: 500, color: "#555", margin: "0 0 4px" }}>DPU by Truck Type</p>
-                <p style={{ fontSize: 11, color: "#aaa", margin: "0 0 12px" }}>AVG Defects per Unit — filtered period</p>
+                <p style={{ fontSize: 11, color: "#aaa", margin: "0 0 12px" }}>AVG Defects per Unit — {periodLabel}</p>
                 {(() => {
                   const byTruck = {};
-                  const since = getDateRange(chartPeriod);
-                  workOrders
-                    .filter(wo => (!since || wo.week_start >= since) && (chartTruckType === "all" || wo.truck_type === chartTruckType))
-                    .forEach(wo => {
-                      if (!byTruck[wo.truck_type]) byTruck[wo.truck_type] = { defects: 0, count: 0 };
-                      byTruck[wo.truck_type].defects += wo.total_defects;
-                      byTruck[wo.truck_type].count   += 1;
-                    });
+                  filteredWorkOrders.forEach(wo => {
+                    if (!byTruck[wo.truck_type]) byTruck[wo.truck_type] = { defects: 0, count: 0 };
+                    byTruck[wo.truck_type].defects += wo.total_defects;
+                    byTruck[wo.truck_type].count   += 1;
+                  });
                   const dpuByTruck = Object.entries(byTruck)
                     .filter(([name]) => name && name !== "n/a")
-                    .map(([name, d]) => ({
-                      name,
-                      dpu:   Math.round((d.defects / d.count) * 100) / 100,
-                      count: d.count,
-                    }))
+                    .map(([name, d]) => ({ name, dpu: Math.round((d.defects / d.count) * 100) / 100, count: d.count }))
                     .sort((a, b) => b.dpu - a.dpu);
-
                   if (dpuByTruck.length === 0) return <p style={{ fontSize: 12, color: "#aaa", textAlign: "center", paddingTop: 80 }}>No data for this period.</p>;
-
                   const maxDpu = Math.max(...dpuByTruck.map(d => d.dpu));
-
                   const DpuTooltip = ({ active, payload, label }) => {
                     if (!active || !payload?.length) return null;
                     const d = payload[0]?.payload;
@@ -568,7 +646,6 @@ export default function WorkOrderPanel({ onSaved, unreadIds = new Set(), onMarkR
                       </div>
                     );
                   };
-
                   return (
                     <ResponsiveContainer width="100%" height={240}>
                       <BarChart data={dpuByTruck} layout="vertical" margin={{ top: 0, right: 50, left: 0, bottom: 0 }}>
@@ -576,26 +653,19 @@ export default function WorkOrderPanel({ onSaved, unreadIds = new Set(), onMarkR
                         <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={v => v.toFixed(2)} />
                         <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={90} />
                         <Tooltip content={<DpuTooltip />} />
-                        <Bar dataKey="dpu" name="DPU" radius={[0, 3, 3, 0]}
-                          label={{ position: "right", fontSize: 10, fill: "#888", formatter: v => v.toFixed(2) }}>
+                        <Bar dataKey="dpu" name="DPU" radius={[0, 3, 3, 0]} label={{ position: "right", fontSize: 10, fill: "#888", formatter: v => v.toFixed(2) }}>
                           {dpuByTruck.map((entry) => (
-                            <Cell key={entry.name} fill={
-                              entry.dpu > maxDpu * 0.66 ? "#E24B4A" :
-                              entry.dpu > maxDpu * 0.33 ? "#854F0B" : "#1D9E75"
-                            } />
+                            <Cell key={entry.name} fill={entry.dpu > maxDpu * 0.66 ? "#E24B4A" : entry.dpu > maxDpu * 0.33 ? "#854F0B" : "#1D9E75"} />
                           ))}
                         </Bar>
                       </BarChart>
                     </ResponsiveContainer>
                   );
                 })()}
-                <p style={{ fontSize: 10, color: "#aaa", margin: "6px 0 0" }}>
-                  Green = Lowest DPU · Amber = Moderate · Red = Highest DPU
-                </p>
+                <p style={{ fontSize: 10, color: "#aaa", margin: "6px 0 0" }}>Green = Lowest DPU · Amber = Moderate · Red = Highest DPU</p>
               </div>
             </div>
 
-            {/* Bottom — stacked bar by week */}
             <div>
               <p style={{ fontSize: 13, fontWeight: 500, color: "#555", margin: "0 0 12px" }}>Defects by Week</p>
               {barData.length === 0 ? (
@@ -629,6 +699,21 @@ export default function WorkOrderPanel({ onSaved, unreadIds = new Set(), onMarkR
           </select>
         )}
       </div>
+
+      {/* PENDING EDITS BAR */}
+      {pendingCount > 0 && (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 16px", background: "#f0faf6", border: "0.5px solid #1D9E75", borderRadius: 8, marginTop: 10, marginBottom: 8 }}>
+          <span style={{ fontSize: 13, color: "#0F6E56" }}>
+            {pendingCount} unsaved edit{pendingCount !== 1 ? "s" : ""} — click Edit on another row to queue more
+          </span>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={() => { setPendingEdits({}); setEditValues({}); }} style={{ padding: "6px 14px", fontSize: 12, border: "0.5px solid #ddd", borderRadius: 7, background: "#fff", color: "#888", cursor: "pointer", fontFamily: "inherit" }}>Discard all</button>
+            <button onClick={saveAllEdits} disabled={saving} style={{ padding: "6px 14px", fontSize: 12, border: "none", borderRadius: 7, background: saving ? "#ccc" : "#1D9E75", color: "#fff", cursor: saving ? "not-allowed" : "pointer", fontFamily: "inherit", fontWeight: 500 }}>
+              {saving ? "Saving…" : `Save ${pendingCount} change${pendingCount !== 1 ? "s" : ""}`}
+            </button>
+          </div>
+        </div>
+      )}
 
       {showHistory && sortedWeeks.length === 0 && <p style={{ fontSize: 13, color: "#aaa", textAlign: "center", padding: 24 }}>No work orders for {selectedYear}.</p>}
 
@@ -681,101 +766,110 @@ export default function WorkOrderPanel({ onSaved, unreadIds = new Set(), onMarkR
                       </tr>
                     </thead>
                     <tbody>
-                      {wos.map(wo => (
-                        <>
-                          <tr key={wo.id} style={{ borderBottom: "0.5px solid #f5f5f5", background: "white" }}>
-                            <td style={{ padding: "6px 16px" }}>
-                              {editingId === wo.id ? <input type="text" value={editValues.work_order_num} onChange={e => setEditValues(prev => ({ ...prev, work_order_num: e.target.value.toUpperCase() }))} style={{ ...inputStyle, width: 120 }} /> : wo.work_order_num}
-                            </td>
-                            <td style={{ padding: "6px 16px" }}>
-                              {editingId === wo.id ? (
-                                <select value={editValues.truck_type} onChange={e => setEditValues(prev => ({ ...prev, truck_type: e.target.value }))} style={{ ...inputStyle, width: 130 }}>
-                                  <option value="">Select…</option>
-                                  {truckTypes.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
-                                </select>
-                              ) : <span style={{ fontSize: 12, background: "#f0f0f0", color: "#555", padding: "2px 8px", borderRadius: 6 }}>{wo.truck_type}</span>}
-                            </td>
-                            <td style={{ padding: "6px 16px" }}>
-                              {editingId === wo.id ? <input type="number" min="0" value={editValues.total_defects} onChange={e => setEditValues(prev => ({ ...prev, total_defects: e.target.value }))} style={{ ...inputStyle, width: 70 }} /> : wo.total_defects}
-                            </td>
-                            <td style={{ padding: "6px 16px" }}>
-                              {editingId !== wo.id && <button onClick={() => toggleWO(wo.id)} style={{ padding: "2px 8px", fontSize: 11, border: "0.5px solid #ddd", borderRadius: 6, background: "#fff", color: "#555", cursor: "pointer", fontFamily: "inherit" }}>{expandedWO[wo.id] ? "▲ Hide" : "▼ Show"}</button>}
-                            </td>
-                            <td style={{ padding: "6px 16px" }}>
-                              <div style={{ display: "flex", gap: 6 }}>
-                                {editingId === wo.id ? (
-                                  <>
-                                    <button onClick={() => saveEdit(wo)} style={{ padding: "3px 10px", fontSize: 11, border: "1px solid #1D9E75", background: "#E1F5EE", color: "#0F6E56", borderRadius: 6, cursor: "pointer" }}>Save</button>
-                                    <button onClick={() => { setEditingId(null); setEditValues({}); }} style={{ padding: "3px 8px", fontSize: 11, border: "0.5px solid #ddd", background: "#fff", color: "#888", borderRadius: 6, cursor: "pointer" }}>Cancel</button>
-                                  </>
-                                ) : (
-                                  <>
-                                    <button onClick={() => startEdit(wo)} style={{ padding: "3px 10px", fontSize: 11, border: "1px solid #378ADD", background: "#E6F1FB", color: "#0C447C", borderRadius: 6, cursor: "pointer" }}>Edit</button>
-                                    <button onClick={() => handleDelete(wo.id)} style={{ padding: "3px 8px", fontSize: 11, border: "1px solid #E24B4A", background: "#FCEBEB", color: "#A32D2D", borderRadius: 6, cursor: "pointer" }}>Delete</button>
-                                  </>
-                                )}
-                              </div>
-                            </td>
-                          </tr>
-
-                          {expandedWO[wo.id] && (
-                            <tr key={`${wo.id}-defects`}>
-                              <td colSpan={5} style={{ padding: "8px 16px 12px 32px", background: "#fafafa" }}>
-                                {woDefects[wo.id] && woDefects[wo.id].length > 0 ? (
-                                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, marginBottom: 8 }}>
-                                    <thead>
-                                      <tr>
-                                        <th style={{ padding: "4px 8px", fontWeight: 500, color: "#888", textAlign: "left" }}>Defect type</th>
-                                        <th style={{ width: 110 }}></th>
-                                      </tr>
-                                    </thead>
-                                    <tbody>
-                                      {woDefects[wo.id].map(d => (
-                                        <tr key={d.id} style={{ borderBottom: "0.5px solid #f0f0f0" }}>
-                                          <td style={{ padding: "4px 8px", color: "#333" }}>
-                                            {editingDefectId === d.id ? (
-                                              <select value={editDefectValues.defect_type_id} onChange={e => setEditDefectValues(prev => ({ ...prev, defect_type_id: e.target.value }))} style={{ ...inputStyle, width: "100%" }}>
-                                                {defectTypes.map(dt => <option key={dt.id} value={dt.id}>{dt.name}</option>)}
-                                              </select>
-                                            ) : d.defect_type_name}
-                                          </td>
-                                          <td style={{ padding: "4px 8px" }}>
-                                            {editingDefectId === d.id ? (
-                                              <div style={{ display: "flex", gap: 4 }}>
-                                                <button onClick={() => saveEditDefect(wo.id, d.id)} disabled={defectSaving} style={{ padding: "2px 8px", fontSize: 10, border: "1px solid #1D9E75", background: "#E1F5EE", color: "#0F6E56", borderRadius: 4, cursor: "pointer" }}>{defectSaving ? "…" : "Save"}</button>
-                                                <button onClick={() => { setEditingDefectId(null); setEditDefectValues({}); }} style={{ padding: "2px 6px", fontSize: 10, border: "0.5px solid #ddd", background: "#fff", color: "#888", borderRadius: 4, cursor: "pointer" }}>Cancel</button>
-                                              </div>
-                                            ) : (
-                                              <div style={{ display: "flex", gap: 4 }}>
-                                                <button onClick={() => startEditDefect(d)} style={{ padding: "2px 8px", fontSize: 10, border: "1px solid #378ADD", background: "#E6F1FB", color: "#0C447C", borderRadius: 4, cursor: "pointer" }}>Edit</button>
-                                                <button onClick={() => handleDeleteDefect(wo.id, d.id)} style={{ padding: "2px 6px", fontSize: 10, border: "1px solid #E24B4A", background: "#FCEBEB", color: "#A32D2D", borderRadius: 4, cursor: "pointer" }}>Delete</button>
-                                              </div>
-                                            )}
-                                          </td>
-                                        </tr>
-                                      ))}
-                                    </tbody>
-                                  </table>
-                                ) : (
-                                  <p style={{ fontSize: 12, color: "#aaa", margin: "0 0 8px", fontStyle: "italic" }}>No defect breakdown recorded.</p>
-                                )}
-                                {addingDefectWoId === wo.id ? (
-                                  <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 4 }}>
-                                    <select value={newDefectRow.defect_type_id} onChange={e => setNewDefectRow(prev => ({ ...prev, defect_type_id: e.target.value }))} style={{ ...inputStyle, flex: 1 }}>
-                                      <option value="">Select defect type…</option>
-                                      {defectTypes.map(dt => <option key={dt.id} value={dt.id}>{dt.name}</option>)}
-                                    </select>
-                                    <button onClick={() => handleAddDefect(wo.id)} disabled={defectSaving || !newDefectRow.defect_type_id} style={{ padding: "4px 12px", fontSize: 11, border: "1px solid #1D9E75", background: "#E1F5EE", color: "#0F6E56", borderRadius: 6, cursor: "pointer" }}>{defectSaving ? "…" : "Add"}</button>
-                                    <button onClick={() => { setAddingDefectWoId(null); setNewDefectRow({ defect_type_id: "" }); }} style={{ padding: "4px 8px", fontSize: 11, border: "0.5px solid #ddd", background: "#fff", color: "#888", borderRadius: 6, cursor: "pointer" }}>Cancel</button>
-                                  </div>
-                                ) : (
-                                  <button onClick={() => { setAddingDefectWoId(wo.id); setNewDefectRow({ defect_type_id: "" }); }} style={{ padding: "3px 10px", fontSize: 11, border: "0.5px dashed #ddd", borderRadius: 6, background: "transparent", color: "#888", cursor: "pointer", fontFamily: "inherit" }}>+ add defect type</button>
-                                )}
+                      {wos.map(wo => {
+                        const isEditing = editingId === wo.id;
+                        const isPending = !!pendingEdits[wo.id];
+                        const vals      = editValues[wo.id] ?? {};
+                        return (
+                          <>
+                            <tr key={wo.id} style={{ borderBottom: "0.5px solid #f5f5f5", background: isPending ? "#f0faf6" : "white" }}>
+                              <td style={{ padding: "6px 16px" }}>
+                                {isEditing
+                                  ? <input type="text" value={vals.work_order_num ?? ""} onChange={e => setEditValues(prev => ({ ...prev, [wo.id]: { ...prev[wo.id], work_order_num: e.target.value.toUpperCase() } }))} style={{ ...inputStyle, width: 120 }} />
+                                  : <span>{wo.work_order_num}{isPending && <span style={{ marginLeft: 6, fontSize: 10, background: "#E1F5EE", color: "#0F6E56", padding: "1px 6px", borderRadius: 6 }}>Edited</span>}</span>}
+                              </td>
+                              <td style={{ padding: "6px 16px" }}>
+                                {isEditing ? (
+                                  <select value={vals.truck_type ?? ""} onChange={e => setEditValues(prev => ({ ...prev, [wo.id]: { ...prev[wo.id], truck_type: e.target.value } }))} style={{ ...inputStyle, width: 130 }}>
+                                    <option value="">Select…</option>
+                                    {truckTypes.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
+                                  </select>
+                                ) : <span style={{ fontSize: 12, background: "#f0f0f0", color: "#555", padding: "2px 8px", borderRadius: 6 }}>{wo.truck_type}</span>}
+                              </td>
+                              <td style={{ padding: "6px 16px" }}>
+                                {isEditing
+                                  ? <input type="number" min="0" value={vals.total_defects ?? ""} onChange={e => setEditValues(prev => ({ ...prev, [wo.id]: { ...prev[wo.id], total_defects: e.target.value } }))} style={{ ...inputStyle, width: 70 }} />
+                                  : wo.total_defects}
+                              </td>
+                              <td style={{ padding: "6px 16px" }}>
+                                {!isEditing && <button onClick={() => toggleWO(wo.id)} style={{ padding: "2px 8px", fontSize: 11, border: "0.5px solid #ddd", borderRadius: 6, background: "#fff", color: "#555", cursor: "pointer", fontFamily: "inherit" }}>{expandedWO[wo.id] ? "▲ Hide" : "▼ Show"}</button>}
+                              </td>
+                              <td style={{ padding: "6px 16px" }}>
+                                <div style={{ display: "flex", gap: 6 }}>
+                                  {isEditing ? (
+                                    <>
+                                      <button onClick={() => queueEdit(wo.id)} style={{ padding: "3px 10px", fontSize: 11, border: "1px solid #1D9E75", background: "#E1F5EE", color: "#0F6E56", borderRadius: 6, cursor: "pointer" }}>Done</button>
+                                      <button onClick={() => setEditingId(null)} style={{ padding: "3px 8px", fontSize: 11, border: "0.5px solid #ddd", background: "#fff", color: "#888", borderRadius: 6, cursor: "pointer" }}>Cancel</button>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <button onClick={() => startEdit(wo)} style={{ padding: "3px 10px", fontSize: 11, border: "1px solid #378ADD", background: "#E6F1FB", color: "#0C447C", borderRadius: 6, cursor: "pointer" }}>Edit</button>
+                                      <button onClick={() => handleDelete(wo.id)} style={{ padding: "3px 8px", fontSize: 11, border: "1px solid #E24B4A", background: "#FCEBEB", color: "#A32D2D", borderRadius: 6, cursor: "pointer" }}>Delete</button>
+                                    </>
+                                  )}
+                                </div>
                               </td>
                             </tr>
-                          )}
-                        </>
-                      ))}
+
+                            {expandedWO[wo.id] && (
+                              <tr key={`${wo.id}-defects`}>
+                                <td colSpan={5} style={{ padding: "8px 16px 12px 32px", background: "#fafafa" }}>
+                                  {woDefects[wo.id] && woDefects[wo.id].length > 0 ? (
+                                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, marginBottom: 8 }}>
+                                      <thead>
+                                        <tr>
+                                          <th style={{ padding: "4px 8px", fontWeight: 500, color: "#888", textAlign: "left" }}>Defect type</th>
+                                          <th style={{ width: 110 }}></th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {woDefects[wo.id].map(d => (
+                                          <tr key={d.id} style={{ borderBottom: "0.5px solid #f0f0f0" }}>
+                                            <td style={{ padding: "4px 8px", color: "#333" }}>
+                                              {editingDefectId === d.id ? (
+                                                <select value={editDefectValues.defect_type_id} onChange={e => setEditDefectValues(prev => ({ ...prev, defect_type_id: e.target.value }))} style={{ ...inputStyle, width: "100%" }}>
+                                                  {defectTypes.map(dt => <option key={dt.id} value={dt.id}>{dt.name}</option>)}
+                                                </select>
+                                              ) : d.defect_type_name}
+                                            </td>
+                                            <td style={{ padding: "4px 8px" }}>
+                                              {editingDefectId === d.id ? (
+                                                <div style={{ display: "flex", gap: 4 }}>
+                                                  <button onClick={() => saveEditDefect(wo.id, d.id)} disabled={defectSaving} style={{ padding: "2px 8px", fontSize: 10, border: "1px solid #1D9E75", background: "#E1F5EE", color: "#0F6E56", borderRadius: 4, cursor: "pointer" }}>{defectSaving ? "…" : "Save"}</button>
+                                                  <button onClick={() => { setEditingDefectId(null); setEditDefectValues({}); }} style={{ padding: "2px 6px", fontSize: 10, border: "0.5px solid #ddd", background: "#fff", color: "#888", borderRadius: 4, cursor: "pointer" }}>Cancel</button>
+                                                </div>
+                                              ) : (
+                                                <div style={{ display: "flex", gap: 4 }}>
+                                                  <button onClick={() => startEditDefect(d)} style={{ padding: "2px 8px", fontSize: 10, border: "1px solid #378ADD", background: "#E6F1FB", color: "#0C447C", borderRadius: 4, cursor: "pointer" }}>Edit</button>
+                                                  <button onClick={() => handleDeleteDefect(wo.id, d.id)} style={{ padding: "2px 6px", fontSize: 10, border: "1px solid #E24B4A", background: "#FCEBEB", color: "#A32D2D", borderRadius: 4, cursor: "pointer" }}>Delete</button>
+                                                </div>
+                                              )}
+                                            </td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  ) : (
+                                    <p style={{ fontSize: 12, color: "#aaa", margin: "0 0 8px", fontStyle: "italic" }}>No defect breakdown recorded.</p>
+                                  )}
+                                  {addingDefectWoId === wo.id ? (
+                                    <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 4 }}>
+                                      <select value={newDefectRow.defect_type_id} onChange={e => setNewDefectRow(prev => ({ ...prev, defect_type_id: e.target.value }))} style={{ ...inputStyle, flex: 1 }}>
+                                        <option value="">Select defect type…</option>
+                                        {defectTypes.map(dt => <option key={dt.id} value={dt.id}>{dt.name}</option>)}
+                                      </select>
+                                      <button onClick={() => handleAddDefect(wo.id)} disabled={defectSaving || !newDefectRow.defect_type_id} style={{ padding: "4px 12px", fontSize: 11, border: "1px solid #1D9E75", background: "#E1F5EE", color: "#0F6E56", borderRadius: 6, cursor: "pointer" }}>{defectSaving ? "…" : "Add"}</button>
+                                      <button onClick={() => { setAddingDefectWoId(null); setNewDefectRow({ defect_type_id: "" }); }} style={{ padding: "4px 8px", fontSize: 11, border: "0.5px solid #ddd", background: "#fff", color: "#888", borderRadius: 6, cursor: "pointer" }}>Cancel</button>
+                                    </div>
+                                  ) : (
+                                    <button onClick={() => { setAddingDefectWoId(wo.id); setNewDefectRow({ defect_type_id: "" }); }} style={{ padding: "3px 10px", fontSize: 11, border: "0.5px dashed #ddd", borderRadius: 6, background: "transparent", color: "#888", cursor: "pointer", fontFamily: "inherit" }}>+ add defect type</button>
+                                  )}
+                                </td>
+                              </tr>
+                            )}
+                          </>
+                        );
+                      })}
                     </tbody>
                   </table>
                 )}

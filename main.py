@@ -1027,3 +1027,18 @@ def change_password(data: dict):
         raise HTTPException(status_code=400, detail="Password too short")
     DASHBOARD_PASSWORD["value"] = new
     return {"ok": True}
+
+@app.put("/work-orders/{wo_id}")
+def update_work_order(wo_id: int, data: dict, db: Session = Depends(get_db)):
+    wo = db.query(WorkOrder).filter(WorkOrder.id == wo_id).first()
+    if not wo:
+        raise HTTPException(status_code=404, detail="Work order not found")
+    if "work_order_num" in data:
+        wo.work_order_num = data["work_order_num"]
+    if "truck_type" in data:
+        wo.truck_type = data["truck_type"]
+    if "total_defects" in data:
+        wo.total_defects = int(data["total_defects"])
+    db.commit()
+    db.refresh(wo)
+    return wo

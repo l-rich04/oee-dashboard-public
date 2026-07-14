@@ -347,3 +347,12 @@ export async function changePassword(currentPassword, newPassword) {
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
+
+export async function updateWorkOrder(id, data) {
+  const res = await fetch(`${API}/work-orders/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  return res.json();
+}
