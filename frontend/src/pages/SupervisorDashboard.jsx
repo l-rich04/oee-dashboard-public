@@ -89,25 +89,31 @@ function computeAlerts(oeeSummary, issues) {
   const qualMin   = Number(goals.alert_quality_min      ?? 50);
   const staleDays = Number(goals.alert_stale_days       ?? 14);
 
+  // Yearly OEE metrics
   if (oeeSummary.oee > 0 && oeeSummary.oee < oeeMin) {
-    alerts.push({ severity: "critical", title: `OEE dropped below ${oeeMin}% — last week ${oeeSummary.oee}%`, detail: "Review Availability, Performance, and Quality metrics." });
+    alerts.push({ severity: "critical", title: `OEE dropped below ${oeeMin}% — this year ${oeeSummary.oee}%`, detail: "Review Availability, Performance, and Quality metrics." });
   }
   if (oeeSummary.availability > 0 && oeeSummary.availability < availMin) {
-    alerts.push({ severity: "critical", title: `Availability dropped below ${availMin}% — last week ${oeeSummary.availability}%`, detail: "Review indirect and rework hours." });
+    alerts.push({ severity: "critical", title: `Availability dropped below ${availMin}% — this year ${oeeSummary.availability}%`, detail: "Review indirect and rework hours." });
   }
   if (oeeSummary.performance > 0 && oeeSummary.performance < perfMin) {
-    alerts.push({ severity: "critical", title: `Performance dropped below ${perfMin}% — last week ${oeeSummary.performance}%`, detail: "Truck output is below target." });
+    alerts.push({ severity: "critical", title: `Performance dropped below ${perfMin}% — this year ${oeeSummary.performance}%`, detail: "Truck output is below target." });
   }
   if (oeeSummary.quality > 0 && oeeSummary.quality < qualMin) {
-    alerts.push({ severity: "critical", title: `Quality dropped below ${qualMin}% — last week ${oeeSummary.quality}%`, detail: "DPU is above quarterly goal." });
-  }
-  if (oeeSummary.avg_dpu_this_week > 0 && oeeSummary.avg_dpu_this_week > goals.quarterly_dpu_goal) {
-    alerts.push({ severity: "critical", title: `DPU exceeded quarterly goal — ${oeeSummary.avg_dpu_this_week} vs ${goals.quarterly_dpu_goal} target`, detail: "Review defect breakdown in Work Orders." });
-  }
-  if (oeeSummary.trucks_this_week > 0 && oeeSummary.trucks_this_week < goals.weekly_trucks_min) {
-    alerts.push({ severity: "warning", title: `Trucks below target — ${oeeSummary.trucks_this_week} completed, goal is ${goals.weekly_trucks_min}–${goals.weekly_trucks_max}`, detail: "Performance metric is affected." });
+    alerts.push({ severity: "critical", title: `Quality dropped below ${qualMin}% — this year ${oeeSummary.quality}%`, detail: "DPU is above quarterly goal." });
   }
 
+  // Yearly DPU vs annual goal
+  if (oeeSummary.yearly_dpu > 0 && oeeSummary.yearly_dpu > goals.annual_dpu_goal) {
+    alerts.push({ severity: "critical", title: `Yearly DPU exceeded annual goal — ${oeeSummary.yearly_dpu} vs ${goals.annual_dpu_goal} target`, detail: "Review defect breakdown in Work Orders." });
+  }
+
+  // Quarterly DPU vs quarterly goal
+  if (oeeSummary.quarterly_dpu > 0 && oeeSummary.quarterly_dpu > goals.quarterly_dpu_goal) {
+    alerts.push({ severity: "critical", title: `Quarterly DPU exceeded goal — ${oeeSummary.quarterly_dpu} vs ${goals.quarterly_dpu_goal} target`, detail: "Review defect breakdown in Work Orders." });
+  }
+
+  // Stale issues — warning
   const staleIssues = issues.filter(i => {
     if (i.status === "solved") return false;
     const days = Math.floor((new Date() - new Date(i.created_at + "Z")) / (1000 * 60 * 60 * 24));
@@ -115,7 +121,7 @@ function computeAlerts(oeeSummary, issues) {
   });
   if (staleIssues.length > 0) {
     const names = [...new Set(staleIssues.map(i => i.foreman_name))].join(", ");
-    alerts.push({ severity: "info", title: `${staleIssues.length} issue${staleIssues.length !== 1 ? "s" : ""} open longer than ${staleDays} days`, detail: `Foremen: ${names}` });
+    alerts.push({ severity: "warning", title: `${staleIssues.length} issue${staleIssues.length !== 1 ? "s" : ""} open longer than ${staleDays} days`, detail: `Foremen: ${names}` });
   }
 
   return alerts;
@@ -157,6 +163,8 @@ export default function SupervisorDashboard() {
 
   const knownIssueIds     = useRef(null);
   const knownWorkOrderIds = useRef(null);
+  // Track previous alert titles so we only reset dismissed state when alerts actually change
+  const prevAlertTitles   = useRef("");
 
   useEffect(() => {
     if (!authed) return;
@@ -166,29 +174,36 @@ export default function SupervisorDashboard() {
   }, [authed]);
 
   useEffect(() => {
-    if (!oeeSummary || issues.length === 0) return;
+    if (!oeeSummary) return;
     const computed = computeAlerts(oeeSummary, issues);
-    setAlerts(computed);
-    setDismissedAlerts(new Set());
+    const newTitles = computed.map(a => a.title).join("|");
 
-    if (Notification.permission === "granted" && computed.length > 0) {
-      const weekKey = getAlertWeekKey();
-      const alreadyNotified = sessionStorage.getItem(weekKey);
-      if (!alreadyNotified) {
-        computed.forEach((alert, i) => {
-          setTimeout(() => {
-            const notif = new Notification(alert.severity === "critical" ? "Dashboard Alert" : "Dashboard Notice", {
-              body: alert.title,
-              icon: "/favicon.svg",
-              badge: "/favicon.svg",
-              tag: `alert-${weekKey}-${i}`,
-            });
-            notif.onclick = () => { window.focus(); notif.close(); };
-          }, i * 800);
-        });
-        sessionStorage.setItem(weekKey, "1");
+    // Only reset dismissed alerts if the alert content actually changed
+    if (newTitles !== prevAlertTitles.current) {
+      prevAlertTitles.current = newTitles;
+      setDismissedAlerts(new Set());
+
+      if (Notification.permission === "granted" && computed.length > 0) {
+        const weekKey = getAlertWeekKey();
+        const alreadyNotified = sessionStorage.getItem(weekKey);
+        if (!alreadyNotified) {
+          computed.forEach((alert, i) => {
+            setTimeout(() => {
+              const notif = new Notification(alert.severity === "critical" ? "Dashboard Alert" : "Dashboard Notice", {
+                body: alert.title,
+                icon: "/favicon.svg",
+                badge: "/favicon.svg",
+                tag: `alert-${weekKey}-${i}`,
+              });
+              notif.onclick = () => { window.focus(); notif.close(); };
+            }, i * 800);
+          });
+          sessionStorage.setItem(weekKey, "1");
+        }
       }
     }
+
+    setAlerts(computed);
   }, [oeeSummary, issues]);
 
   const visibleAlerts = alerts.filter((_, i) => !dismissedAlerts.has(i));
@@ -202,9 +217,9 @@ export default function SupervisorDashboard() {
   }
 
   async function load() {
-  const [data, sum] = await Promise.all([getIssues({}), getSummary(period)]);
-  const isFirstLoad = knownIssueIds.current === null;
-  if (!isFirstLoad && Notification.permission === "granted") {
+    const [data, sum] = await Promise.all([getIssues({}), getSummary(period)]);
+    const isFirstLoad = knownIssueIds.current === null;
+    if (!isFirstLoad && Notification.permission === "granted") {
       const newIssues = data.filter(i => !knownIssueIds.current.has(i.id));
       newIssues.forEach(issue => {
         const notif = new Notification("New Issue Submitted", {
@@ -232,37 +247,35 @@ export default function SupervisorDashboard() {
   }
 
   async function loadWorkOrders(silent = false) {
-  try {
-    const data = await getWorkOrders();
-    const isFirstLoad = knownWorkOrderIds.current === null;
+    try {
+      const data = await getWorkOrders();
+      const isFirstLoad = knownWorkOrderIds.current === null;
 
-    if (!silent && !isFirstLoad && knownWorkOrderIds.current.size > 0 && Notification.permission === "granted") {
-      const newWOs = data.filter(wo => !knownWorkOrderIds.current.has(wo.id));
-      newWOs.forEach(wo => {
-        const notif = new Notification("New Defect Report Submitted", {
-          body: `Work order ${wo.work_order_num} — ${wo.truck_type} — ${wo.total_defects} defect${wo.total_defects !== 1 ? "s" : ""}`,
-          icon: "/favicon.svg", badge: "/favicon.svg", tag: `wo-${wo.id}`,
+      if (!silent && !isFirstLoad && knownWorkOrderIds.current.size > 0 && Notification.permission === "granted") {
+        const newWOs = data.filter(wo => !knownWorkOrderIds.current.has(wo.id));
+        newWOs.forEach(wo => {
+          const notif = new Notification("New Defect Report Submitted", {
+            body: `Work order ${wo.work_order_num} — ${wo.truck_type} — ${wo.total_defects} defect${wo.total_defects !== 1 ? "s" : ""}`,
+            icon: "/favicon.svg", badge: "/favicon.svg", tag: `wo-${wo.id}`,
+          });
+          notif.onclick = () => { window.focus(); notif.close(); };
         });
-        notif.onclick = () => { window.focus(); notif.close(); };
+      }
+
+      knownWorkOrderIds.current = new Set(data.map(wo => wo.id));
+
+      setWorkOrders(prev => {
+        const localReadIds = new Set(prev.filter(wo => wo.is_read).map(wo => wo.id));
+        return data.map(wo => ({
+          ...wo,
+          is_read: isFirstLoad ? true : (localReadIds.has(wo.id) ? true : wo.is_read),
+        }));
       });
+
+    } catch (err) {
+      console.error("Work orders error:", err);
     }
-
-    knownWorkOrderIds.current = new Set(data.map(wo => wo.id));
-
-    setWorkOrders(prev => {
-      // Build a set of IDs we already know about as read
-      const localReadIds = new Set(prev.filter(wo => wo.is_read).map(wo => wo.id));
-      return data.map(wo => ({
-        ...wo,
-        // Keep as read if: it was already read locally, OR it's a first load (treat all existing as read)
-        is_read: isFirstLoad ? true : (localReadIds.has(wo.id) ? true : wo.is_read),
-      }));
-    });
-
-  } catch (err) {
-    console.error("Work orders error:", err);
   }
-}
 
   useEffect(() => {
     if (authed) { load(); loadOEE(); loadForemen(); loadWorkOrders(); }
@@ -270,12 +283,11 @@ export default function SupervisorDashboard() {
 
   useEffect(() => {
     if (!authed) return;
-    const interval = setInterval(() => { load(); loadWorkOrders(true); }, 30000);
+    const interval = setInterval(() => { load(); loadWorkOrders(true); loadOEE(); }, 30000);
     return () => clearInterval(interval);
   }, [authed]);
 
   async function handleExport(mode) {
-    console.log("handleExport called", mode);
     setExporting(true);
     try {
       const data = await exportAll();
@@ -415,14 +427,12 @@ export default function SupervisorDashboard() {
   const sortedForemen       = sortForemen(Object.keys(grouped));
   const sortedSolvedForemen = sortForemen(Object.keys(solvedGrouped));
 
- if (!authed) return (
-  <>
-    <Helmet>
-      <title>Supervisor Dashboard</title>
-    </Helmet>
-    <SupervisorLogin onSuccess={() => setAuthed(true)} />
-  </>
-);
+  if (!authed) return (
+    <>
+      <Helmet><title>Supervisor Dashboard</title></Helmet>
+      <SupervisorLogin onSuccess={() => setAuthed(true)} />
+    </>
+  );
 
   return (
     <>
@@ -772,7 +782,7 @@ export default function SupervisorDashboard() {
                     unreadIds={new Set(workOrders.filter(wo => !wo.is_read).map(wo => wo.id))}
                     onMarkRead={(id) => {
                       setWorkOrders(prev => prev.map(wo => wo.id === id ? { ...wo, is_read: true } : wo));
-                  }}
+                    }}
                   />
                 )}
                 {activeOeeTab === "downtime" && <WeeklyLaborPanel onSaved={loadOEE} />}
