@@ -221,16 +221,16 @@ export default function OEEGoalsPanel({ onSaved }) {
             </div>
 
             {/* Alert thresholds */}
-            <p style={{ fontSize: 12, fontWeight: 500, color: "#555", margin: "0 0 4px" }}>Alert thresholds</p>
+            <p style={{ fontSize: 12, fontWeight: 500, color: "#555", margin: "0 0 4px" }}>Alert Thresholds</p>
             <p style={{ fontSize: 11, color: "#aaa", margin: "0 0 12px" }}>
               Dashboard banner alerts fire when metrics drop below these values.
             </p>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 24 }}>
               {[
-                { label: "OEE Minimum %",          field: "alert_oee_min",          def: 60, hint: "Alert if OEE drops below this" },
-                { label: "Availability Minimum %", field: "alert_availability_min", def: 50, hint: "Alert if Availability drops below this" },
-                { label: "Performance Minimum %",  field: "alert_performance_min",  def: 50, hint: "Alert if Performance drops below this" },
-                { label: "Quality Minimum %",      field: "alert_quality_min",      def: 50, hint: "Alert if Quality drops below this" },
+                { label: "Yearly OEE Minimum %",          field: "alert_oee_min",          def: 60, hint: "Alert if OEE drops below this" },
+                { label: "Yearly Availability Minimum %", field: "alert_availability_min", def: 50, hint: "Alert if Availability drops below this" },
+                { label: "Yearly Performance Minimum %",  field: "alert_performance_min",  def: 50, hint: "Alert if Performance drops below this" },
+                { label: "Yearly Quality Minimum %",      field: "alert_quality_min",      def: 50, hint: "Alert if Quality drops below this" },
                 { label: "Stale Issue Days",       field: "alert_stale_days",       def: 14, hint: "Alert if issue open longer than this" },
               ].map(({ label, field, def, hint }) => (
                 <div key={field}>
