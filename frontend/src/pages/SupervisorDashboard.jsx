@@ -32,6 +32,104 @@ function titleCase(str) {
   return str.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
 }
 
+// ─── Alert banner component ───────────────────────────────────────────────────
+
+function AlertBanner({ alerts, onDismiss, onDismissAll }) {
+  if (!alerts || alerts.length === 0) return null;
+
+  const severityStyle = {
+    critical: { bg: "#FCEBEB", border: "#F09595", icon: "ti-alert-triangle", iconColor: "#A32D2D", titleColor: "#791F1F", textColor: "#A32D2D", badgeBg: "#F09595", badgeColor: "#501313", label: "Critical" },
+    warning:  { bg: "#E1F5EE", border: "#5DCAA5", icon: "ti-alert-circle",   iconColor: "#0F6E56", titleColor: "#085041", textColor: "#0F6E56", badgeBg: "#9FE1CB", badgeColor: "#04342C", label: "Attention" },
+    info:     { bg: "#fafafa", border: "#eee",    icon: "ti-clock",           iconColor: "#888",    titleColor: "#333",    textColor: "#888",    badgeBg: "#eee",    badgeColor: "#555",    label: "Info" },
+  };
+
+  return (
+    <div style={{ border: "0.5px solid #eee", borderRadius: 10, overflow: "hidden", marginBottom: 20 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", background: "#fafafa", borderBottom: "0.5px solid #eee" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <i className="ti ti-bell" style={{ fontSize: 15, color: "#888" }} aria-hidden="true" />
+          <span style={{ fontSize: 12, fontWeight: 500, color: "#333" }}>
+            {alerts.length} alert{alerts.length !== 1 ? "s" : ""} this week
+          </span>
+        </div>
+        <button onClick={onDismissAll} style={{ fontSize: 11, color: "#888", background: "none", border: "none", cursor: "pointer", padding: 0, fontFamily: "inherit" }}>
+          Dismiss all
+        </button>
+      </div>
+      {alerts.map((alert, i) => {
+        const s = severityStyle[alert.severity] ?? severityStyle.info;
+        return (
+          <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderBottom: i < alerts.length - 1 ? "0.5px solid #eee" : "none", background: s.bg }}>
+            <i className={`ti ${s.icon}`} style={{ fontSize: 15, color: s.iconColor, flexShrink: 0 }} aria-hidden="true" />
+            <div style={{ flex: 1 }}>
+              <p style={{ fontSize: 12, fontWeight: 500, color: s.titleColor, margin: 0 }}>{alert.title}</p>
+              {alert.detail && <p style={{ fontSize: 11, color: s.textColor, margin: "2px 0 0" }}>{alert.detail}</p>}
+            </div>
+            <span style={{ fontSize: 10, background: s.badgeBg, color: s.badgeColor, padding: "2px 7px", borderRadius: 10, fontWeight: 500, whiteSpace: "nowrap" }}>
+              {s.label}
+            </span>
+            <button onClick={() => onDismiss(i)} style={{ fontSize: 13, color: "#aaa", background: "none", border: "none", cursor: "pointer", padding: "0 2px", lineHeight: 1, fontFamily: "inherit" }}>✕</button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── Alert threshold checker ──────────────────────────────────────────────────
+
+function computeAlerts(oeeSummary, issues) {
+  if (!oeeSummary) return [];
+  const alerts = [];
+  const { goals } = oeeSummary;
+
+  const oeeMin    = Number(goals.alert_oee_min          ?? 60);
+  const availMin  = Number(goals.alert_availability_min ?? 50);
+  const perfMin   = Number(goals.alert_performance_min  ?? 50);
+  const qualMin   = Number(goals.alert_quality_min      ?? 50);
+  const staleDays = Number(goals.alert_stale_days       ?? 14);
+
+  if (oeeSummary.oee > 0 && oeeSummary.oee < oeeMin) {
+    alerts.push({ severity: "critical", title: `OEE dropped below ${oeeMin}% — last week ${oeeSummary.oee}%`, detail: "Review Availability, Performance, and Quality metrics." });
+  }
+  if (oeeSummary.availability > 0 && oeeSummary.availability < availMin) {
+    alerts.push({ severity: "critical", title: `Availability dropped below ${availMin}% — last week ${oeeSummary.availability}%`, detail: "Review indirect and rework hours." });
+  }
+  if (oeeSummary.performance > 0 && oeeSummary.performance < perfMin) {
+    alerts.push({ severity: "critical", title: `Performance dropped below ${perfMin}% — last week ${oeeSummary.performance}%`, detail: "Truck output is below target." });
+  }
+  if (oeeSummary.quality > 0 && oeeSummary.quality < qualMin) {
+    alerts.push({ severity: "critical", title: `Quality dropped below ${qualMin}% — last week ${oeeSummary.quality}%`, detail: "DPU is above quarterly goal." });
+  }
+  if (oeeSummary.avg_dpu_this_week > 0 && oeeSummary.avg_dpu_this_week > goals.quarterly_dpu_goal) {
+    alerts.push({ severity: "critical", title: `DPU exceeded quarterly goal — ${oeeSummary.avg_dpu_this_week} vs ${goals.quarterly_dpu_goal} target`, detail: "Review defect breakdown in Work Orders." });
+  }
+  if (oeeSummary.trucks_this_week > 0 && oeeSummary.trucks_this_week < goals.weekly_trucks_min) {
+    alerts.push({ severity: "warning", title: `Trucks below target — ${oeeSummary.trucks_this_week} completed, goal is ${goals.weekly_trucks_min}–${goals.weekly_trucks_max}`, detail: "Performance metric is affected." });
+  }
+
+  const staleIssues = issues.filter(i => {
+    if (i.status === "solved") return false;
+    const days = Math.floor((new Date() - new Date(i.created_at + "Z")) / (1000 * 60 * 60 * 24));
+    return days > staleDays;
+  });
+  if (staleIssues.length > 0) {
+    const names = [...new Set(staleIssues.map(i => i.foreman_name))].join(", ");
+    alerts.push({ severity: "info", title: `${staleIssues.length} issue${staleIssues.length !== 1 ? "s" : ""} open longer than ${staleDays} days`, detail: `Foremen: ${names}` });
+  }
+
+  return alerts;
+}
+
+function getAlertWeekKey() {
+  const d = new Date();
+  const day  = d.getDay();
+  const diff = day === 0 ? 6 : day - 1;
+  const monday = new Date(d);
+  monday.setDate(d.getDate() - diff);
+  return `alerts_notified_${monday.toISOString().split("T")[0]}`;
+}
+
 export default function SupervisorDashboard() {
   const [authed, setAuthed]                   = useState(sessionStorage.getItem("supervisor_auth") === "true");
   const [activeTab, setActiveTab]             = useState("issues");
@@ -54,6 +152,8 @@ export default function SupervisorDashboard() {
   const [loading, setLoading]                 = useState(true);
   const [notifPermission, setNotifPermission] = useState(Notification.permission);
   const [exporting, setExporting]             = useState(false);
+  const [alerts, setAlerts]                   = useState([]);
+  const [dismissedAlerts, setDismissedAlerts] = useState(new Set());
 
   const knownIssueIds     = useRef(null);
   const knownWorkOrderIds = useRef(null);
@@ -65,9 +165,46 @@ export default function SupervisorDashboard() {
     }
   }, [authed]);
 
+  useEffect(() => {
+    if (!oeeSummary || issues.length === 0) return;
+    const computed = computeAlerts(oeeSummary, issues);
+    setAlerts(computed);
+    setDismissedAlerts(new Set());
+
+    if (Notification.permission === "granted" && computed.length > 0) {
+      const weekKey = getAlertWeekKey();
+      const alreadyNotified = sessionStorage.getItem(weekKey);
+      if (!alreadyNotified) {
+        computed.forEach((alert, i) => {
+          setTimeout(() => {
+            const notif = new Notification(alert.severity === "critical" ? "Dashboard Alert" : "Dashboard Notice", {
+              body: alert.title,
+              icon: "/favicon.svg",
+              badge: "/favicon.svg",
+              tag: `alert-${weekKey}-${i}`,
+            });
+            notif.onclick = () => { window.focus(); notif.close(); };
+          }, i * 800);
+        });
+        sessionStorage.setItem(weekKey, "1");
+      }
+    }
+  }, [oeeSummary, issues]);
+
+  const visibleAlerts = alerts.filter((_, i) => !dismissedAlerts.has(i));
+
+  function dismissAlert(idx) {
+    setDismissedAlerts(prev => new Set([...prev, idx]));
+  }
+
+  function dismissAllAlerts() {
+    setDismissedAlerts(new Set(alerts.map((_, i) => i)));
+  }
+
   async function load() {
-    const [data, sum] = await Promise.all([getIssues({}), getSummary(period)]);
-    if (knownIssueIds.current !== null && Notification.permission === "granted") {
+  const [data, sum] = await Promise.all([getIssues({}), getSummary(period)]);
+  const isFirstLoad = knownIssueIds.current === null;
+  if (!isFirstLoad && Notification.permission === "granted") {
       const newIssues = data.filter(i => !knownIssueIds.current.has(i.id));
       newIssues.forEach(issue => {
         const notif = new Notification("New Issue Submitted", {
@@ -94,25 +231,38 @@ export default function SupervisorDashboard() {
     catch (err) { console.error("Foremen error:", err); }
   }
 
-  async function loadWorkOrders() {
-    try {
-      const data = await getWorkOrders();
-      if (knownWorkOrderIds.current !== null && Notification.permission === "granted") {
-        const newWOs = data.filter(wo => !knownWorkOrderIds.current.has(wo.id));
-        newWOs.forEach(wo => {
-          const notif = new Notification("New Defect Report Submitted", {
-            body: `Work order ${wo.work_order_num} — ${wo.truck_type} — ${wo.total_defects} defect${wo.total_defects !== 1 ? "s" : ""}`,
-            icon: "/favicon.svg", badge: "/favicon.svg", tag: `wo-${wo.id}`,
-          });
-          notif.onclick = () => { window.focus(); notif.close(); };
+  async function loadWorkOrders(silent = false) {
+  try {
+    const data = await getWorkOrders();
+    const isFirstLoad = knownWorkOrderIds.current === null;
+
+    if (!silent && !isFirstLoad && knownWorkOrderIds.current.size > 0 && Notification.permission === "granted") {
+      const newWOs = data.filter(wo => !knownWorkOrderIds.current.has(wo.id));
+      newWOs.forEach(wo => {
+        const notif = new Notification("New Defect Report Submitted", {
+          body: `Work order ${wo.work_order_num} — ${wo.truck_type} — ${wo.total_defects} defect${wo.total_defects !== 1 ? "s" : ""}`,
+          icon: "/favicon.svg", badge: "/favicon.svg", tag: `wo-${wo.id}`,
         });
-      }
-      knownWorkOrderIds.current = new Set(data.map(wo => wo.id));
-      setWorkOrders(data);
-    } catch (err) {
-      console.error("Work orders error:", err);
+        notif.onclick = () => { window.focus(); notif.close(); };
+      });
     }
+
+    knownWorkOrderIds.current = new Set(data.map(wo => wo.id));
+
+    setWorkOrders(prev => {
+      // Build a set of IDs we already know about as read
+      const localReadIds = new Set(prev.filter(wo => wo.is_read).map(wo => wo.id));
+      return data.map(wo => ({
+        ...wo,
+        // Keep as read if: it was already read locally, OR it's a first load (treat all existing as read)
+        is_read: isFirstLoad ? true : (localReadIds.has(wo.id) ? true : wo.is_read),
+      }));
+    });
+
+  } catch (err) {
+    console.error("Work orders error:", err);
   }
+}
 
   useEffect(() => {
     if (authed) { load(); loadOEE(); loadForemen(); loadWorkOrders(); }
@@ -120,18 +270,16 @@ export default function SupervisorDashboard() {
 
   useEffect(() => {
     if (!authed) return;
-    const interval = setInterval(() => { load(); loadWorkOrders(); }, 30000);
+    const interval = setInterval(() => { load(); loadWorkOrders(true); }, 30000);
     return () => clearInterval(interval);
   }, [authed]);
 
   async function handleExport(mode) {
-  console.log("handleExport called", mode);
-  setExporting(true);
-  try {
-    console.log("fetching data...");
-    const data = await exportAll();
-    console.log("data received", data);
-      const wb   = XLSX.utils.book_new();
+    console.log("handleExport called", mode);
+    setExporting(true);
+    try {
+      const data = await exportAll();
+      const wb = XLSX.utils.book_new();
       if (mode === "issues") {
         const issueRows = data.issues.map(i => ({
           "ID": i.id, "Type": i.issue_type === "part" ? "Part Issue" : "Process Issue",
@@ -179,11 +327,11 @@ export default function SupervisorDashboard() {
         }));
         XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(laborRows), "Labor Hours");
         const goalRows = data.goal_history.map(g => ({
-          "Effective Date":    g.effective_date,
-          "Annual DPU Goal":   g.annual_dpu_goal,
+          "Effective Date":     g.effective_date,
+          "Annual DPU Goal":    g.annual_dpu_goal,
           "Quarterly DPU Goal": g.quarterly_dpu_goal,
-          "Weekly Trucks Min": g.weekly_trucks_min,
-          "Weekly Trucks Max": g.weekly_trucks_max,
+          "Weekly Trucks Min":  g.weekly_trucks_min,
+          "Weekly Trucks Max":  g.weekly_trucks_max,
         }));
         XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(goalRows), "Goal History");
         XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.foremen), "Foremen");
@@ -208,7 +356,7 @@ export default function SupervisorDashboard() {
   useEffect(() => {
     const canvas = document.createElement("canvas");
     canvas.width = canvas.height = 32;
-    const ctx    = canvas.getContext("2d");
+    const ctx = canvas.getContext("2d");
     const svgData = `<svg width="32" height="32" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
       <rect width="32" height="32" rx="6" fill="#1D9E75"/>
       <rect x="4" y="20" width="4" height="8" rx="1" fill="white" opacity="0.9"/>
@@ -267,7 +415,14 @@ export default function SupervisorDashboard() {
   const sortedForemen       = sortForemen(Object.keys(grouped));
   const sortedSolvedForemen = sortForemen(Object.keys(solvedGrouped));
 
-  if (!authed) return <SupervisorLogin onSuccess={() => setAuthed(true)} />;
+ if (!authed) return (
+  <>
+    <Helmet>
+      <title>Supervisor Dashboard</title>
+    </Helmet>
+    <SupervisorLogin onSuccess={() => setAuthed(true)} />
+  </>
+);
 
   return (
     <>
@@ -306,6 +461,13 @@ export default function SupervisorDashboard() {
             <p style={{ fontSize: 13, color: "#888", marginBottom: 20, marginTop: 4 }}>
               Overall Equipment Effectiveness and Production Metrics
             </p>
+
+            {/* ALERT BANNER */}
+            <AlertBanner
+              alerts={visibleAlerts}
+              onDismiss={dismissAlert}
+              onDismissAll={dismissAllAlerts}
+            />
 
             {/* MAIN TAB BAR */}
             <div style={{ display: "flex", gap: 2, borderBottom: "1px solid #eee", marginBottom: 28 }}>
@@ -566,7 +728,7 @@ export default function SupervisorDashboard() {
                         color: activeOeeTab === tab ? "#0F6E56" : "#888",
                         display: "flex", alignItems: "center", gap: 6,
                       }}>
-                        {tab === "overview" ? "Overview" : tab === "workorders" ? "Work Orders" : "Downtime"}
+                        {tab === "overview" ? "Overview" : tab === "workorders" ? "Work Orders" : "Availability"}
                         {tab === "workorders" && unreadWOCount > 0 && (
                           <span style={{ background: "#E24B4A", color: "#fff", fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 10, lineHeight: "16px" }}>
                             {unreadWOCount}
@@ -606,9 +768,11 @@ export default function SupervisorDashboard() {
                 {activeOeeTab === "overview" && <OEEMetrics summary={oeeSummary} />}
                 {activeOeeTab === "workorders" && (
                   <WorkOrderPanel
-                    onSaved={() => { loadOEE(); loadWorkOrders(); }}
+                    onSaved={() => { loadOEE(); loadWorkOrders(true); }}
                     unreadIds={new Set(workOrders.filter(wo => !wo.is_read).map(wo => wo.id))}
-                    onMarkRead={async (id) => { await markWorkOrderRead(id); loadWorkOrders(); }}
+                    onMarkRead={(id) => {
+                      setWorkOrders(prev => prev.map(wo => wo.id === id ? { ...wo, is_read: true } : wo));
+                  }}
                   />
                 )}
                 {activeOeeTab === "downtime" && <WeeklyLaborPanel onSaved={loadOEE} />}

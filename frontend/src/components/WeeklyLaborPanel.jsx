@@ -26,6 +26,8 @@ export default function WeeklyLaborPanel({ onSaved }) {
   const [editingId, setEditingId]             = useState(null);
   const [editValues, setEditValues]           = useState({});
   const [selectedYear, setSelectedYear]       = useState(new Date().getFullYear());
+  const [confirmDeleteYear, setConfirmDeleteYear] = useState(false);
+  const [deletingYear, setDeletingYear]       = useState(false);
 
   async function load() {
     try {
@@ -38,6 +40,13 @@ export default function WeeklyLaborPanel({ onSaved }) {
 
   useEffect(() => { load(); }, []);
 
+  // Auto-jump to most recent available year if selected year has no entries
+  useEffect(() => {
+    if (entries.length === 0) return;
+    const years = [...new Set(entries.map(e => new Date(e.week_start + "T12:00:00").getFullYear()))].sort((a, b) => b - a);
+    if (!years.includes(selectedYear)) setSelectedYear(years[0]);
+  }, [entries]);
+
   const availableYears = useMemo(() => {
     const years = new Set(entries.map(e => new Date(e.week_start + "T12:00:00").getFullYear()));
     years.add(new Date().getFullYear());
@@ -45,9 +54,7 @@ export default function WeeklyLaborPanel({ onSaved }) {
   }, [entries]);
 
   const filteredEntries = useMemo(() => {
-    return entries.filter(e =>
-      new Date(e.week_start + "T12:00:00").getFullYear() === selectedYear
-    );
+    return entries.filter(e => new Date(e.week_start + "T12:00:00").getFullYear() === selectedYear);
   }, [entries, selectedYear]);
 
   const isValid = totalLaborHours !== "" && Number(totalLaborHours) > 0
@@ -86,6 +93,18 @@ export default function WeeklyLaborPanel({ onSaved }) {
     await deleteIndirectLabor(id);
     load();
     if (onSaved) onSaved();
+  }
+
+  async function handleDeleteYear() {
+    setDeletingYear(true);
+    try {
+      await Promise.all(filteredEntries.map(e => deleteIndirectLabor(e.id)));
+      setConfirmDeleteYear(false);
+      load();
+      if (onSaved) onSaved();
+    } finally {
+      setDeletingYear(false);
+    }
   }
 
   function startEdit(entry) {
@@ -137,10 +156,7 @@ export default function WeeklyLaborPanel({ onSaved }) {
         </div>
         <div>
           <label style={labelStyle}>Working Days</label>
-          <select
-            value={workingDays}
-            onChange={e => setWorkingDays(Number(e.target.value))}
-            style={inputStyle}>
+          <select value={workingDays} onChange={e => setWorkingDays(Number(e.target.value))} style={inputStyle}>
             {[1, 2, 3, 4, 5].map(d => (
               <option key={d} value={d}>{d} day{d !== 1 ? "s" : ""}{d === 5 ? " (full week)" : " (short week)"}</option>
             ))}
@@ -148,43 +164,19 @@ export default function WeeklyLaborPanel({ onSaved }) {
         </div>
         <div>
           <label style={labelStyle}>Total Labor Hours</label>
-          <input
-            type="number" min="0" step="0.5"
-            value={totalLaborHours}
-            onChange={e => setTotalLaborHours(e.target.value)}
-            placeholder="e.g. 400"
-            style={inputStyle}
-          />
+          <input type="number" min="0" step="0.5" value={totalLaborHours} onChange={e => setTotalLaborHours(e.target.value)} placeholder="e.g. 400" style={inputStyle} />
         </div>
         <div>
           <label style={labelStyle}>Indirect Hours</label>
-          <input
-            type="number" min="0" step="0.5"
-            value={indirectHours}
-            onChange={e => setIndirectHours(e.target.value)}
-            placeholder="e.g. 80"
-            style={inputStyle}
-          />
+          <input type="number" min="0" step="0.5" value={indirectHours} onChange={e => setIndirectHours(e.target.value)} placeholder="e.g. 80" style={inputStyle} />
         </div>
         <div>
           <label style={labelStyle}>Rework Hours</label>
-          <input
-            type="number" min="0" step="0.5"
-            value={reworkHours}
-            onChange={e => setReworkHours(e.target.value)}
-            placeholder="e.g. 6"
-            style={inputStyle}
-          />
+          <input type="number" min="0" step="0.5" value={reworkHours} onChange={e => setReworkHours(e.target.value)} placeholder="e.g. 6" style={inputStyle} />
         </div>
         <div>
           <label style={labelStyle}>Notes (optional)</label>
-          <input
-            type="text"
-            value={notes}
-            onChange={e => setNotes(e.target.value)}
-            placeholder="Any extra details…"
-            style={inputStyle}
-          />
+          <input type="text" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Any extra details…" style={inputStyle} />
         </div>
         <div>
           <button onClick={handleSave} disabled={!isValid || saving} style={{
@@ -206,31 +198,37 @@ export default function WeeklyLaborPanel({ onSaved }) {
         </div>
       )}
 
-      {successMsg && (
-        <div style={{ padding: "10px 14px", background: "#E1F5EE", borderRadius: 8, fontSize: 13, color: "#0F6E56", marginBottom: 12 }}>
-          {successMsg}
-        </div>
-      )}
+      {successMsg && <div style={{ padding: "10px 14px", background: "#E1F5EE", borderRadius: 8, fontSize: 13, color: "#0F6E56", marginBottom: 12 }}>{successMsg}</div>}
+      {error && <div style={{ padding: "10px 14px", background: "#FCEBEB", borderRadius: 8, fontSize: 13, color: "#A32D2D", marginBottom: 12 }}>{error}</div>}
 
-      {error && (
-        <div style={{ padding: "10px 14px", background: "#FCEBEB", borderRadius: 8, fontSize: 13, color: "#A32D2D", marginBottom: 12 }}>
-          {error}
+      {/* CONFIRM DELETE YEAR MODAL */}
+      {confirmDeleteYear && (
+        <div onClick={e => { if (e.target === e.currentTarget) setConfirmDeleteYear(false); }} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
+          <div style={{ background: "#fff", borderRadius: 12, padding: 28, width: "90%", maxWidth: 440, boxShadow: "0 8px 32px rgba(0,0,0,0.12)" }}>
+            <p style={{ fontSize: 15, fontWeight: 500, color: "#A32D2D", margin: "0 0 8px" }}>Delete all {selectedYear} entries?</p>
+            <p style={{ fontSize: 13, color: "#666", margin: "0 0 24px" }}>This will permanently delete all {filteredEntries.length} labor hour entries for {selectedYear}. This cannot be undone.</p>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={handleDeleteYear} disabled={deletingYear} style={{ padding: "8px 20px", background: "#E24B4A", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontSize: 13, fontWeight: 500, fontFamily: "inherit", opacity: deletingYear ? 0.6 : 1 }}>
+                {deletingYear ? "Deleting…" : "Yes, delete all"}
+              </button>
+              <button onClick={() => setConfirmDeleteYear(false)} style={{ padding: "8px 16px", background: "#fff", border: "0.5px solid #ddd", borderRadius: 8, cursor: "pointer", fontSize: 13, fontFamily: "inherit" }}>Cancel</button>
+            </div>
+          </div>
         </div>
       )}
 
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
         <p style={{ fontSize: 13, fontWeight: 500, color: "#555", margin: 0 }}>Logged Entries</p>
-        <select
-          value={selectedYear}
-          onChange={e => setSelectedYear(Number(e.target.value))}
-          style={{
-            padding: "5px 10px", fontSize: 12, border: "1px solid #ddd",
-            borderRadius: 8, fontFamily: "inherit", background: "#fff", color: "#555",
-          }}>
-          {availableYears.map(y => (
-            <option key={y} value={y}>{y}</option>
-          ))}
-        </select>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <select value={selectedYear} onChange={e => setSelectedYear(Number(e.target.value))} style={{ padding: "5px 10px", fontSize: 12, border: "1px solid #ddd", borderRadius: 8, fontFamily: "inherit", background: "#fff", color: "#555" }}>
+            {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
+          </select>
+          {filteredEntries.length > 0 && (
+            <button onClick={() => setConfirmDeleteYear(true)} style={{ padding: "5px 12px", fontSize: 12, border: "1px solid #E24B4A", background: "#FCEBEB", color: "#A32D2D", borderRadius: 8, cursor: "pointer", fontFamily: "inherit", fontWeight: 500 }}>
+              Delete {selectedYear}
+            </button>
+          )}
+        </div>
       </div>
 
       <div style={{ border: "0.5px solid #eee", borderRadius: 12, overflow: "hidden", maxHeight: 400, overflowY: "auto" }}>
@@ -254,61 +252,31 @@ export default function WeeklyLaborPanel({ onSaved }) {
               const avail = e.total_labor_hours > 0
                 ? Math.round(((e.total_labor_hours - e.indirect_hours - e.rework_hours) / e.total_labor_hours) * 100)
                 : 0;
-              const availColor = avail >= 85 ? "#1D9E75" : avail >= 70 ? "#854F0B" : "#A32D2D";
-              const reworkPct      = e.total_labor_hours > 0
-                ? ((e.rework_hours / e.total_labor_hours) * 100).toFixed(1)
-                : "0.0";
+              const availColor    = avail >= 85 ? "#1D9E75" : avail >= 70 ? "#854F0B" : "#A32D2D";
+              const reworkPct     = e.total_labor_hours > 0 ? ((e.rework_hours / e.total_labor_hours) * 100).toFixed(1) : "0.0";
               const reworkPctColor = parseFloat(reworkPct) > 10 ? "#A32D2D" : parseFloat(reworkPct) > 5 ? "#854F0B" : "#1D9E75";
 
               if (editingId === e.id) {
                 return (
                   <tr key={e.id} style={{ borderBottom: "0.5px solid #f0f0f0", background: "#f0faf6" }}>
                     <td style={tdStyle}>
-                      <input type="date" value={editValues.week_start}
-                        onChange={ev => setEditValues(p => ({ ...p, week_start: ev.target.value }))}
-                        style={{ ...editInputStyle, width: 130 }} />
+                      <input type="date" value={editValues.week_start} onChange={ev => setEditValues(p => ({ ...p, week_start: ev.target.value }))} style={{ ...editInputStyle, width: 130 }} />
                     </td>
                     <td style={tdStyle}>
-                      <select value={editValues.working_days}
-                        onChange={ev => setEditValues(p => ({ ...p, working_days: Number(ev.target.value) }))}
-                        style={{ ...editInputStyle, width: 60 }}>
+                      <select value={editValues.working_days} onChange={ev => setEditValues(p => ({ ...p, working_days: Number(ev.target.value) }))} style={{ ...editInputStyle, width: 60 }}>
                         {[1,2,3,4,5].map(d => <option key={d} value={d}>{d}</option>)}
                       </select>
                     </td>
-                    <td style={tdStyle}>
-                      <input type="number" min="0" step="0.5" value={editValues.total_labor_hours}
-                        onChange={ev => setEditValues(p => ({ ...p, total_labor_hours: ev.target.value }))}
-                        style={{ ...editInputStyle, width: 70 }} />
-                    </td>
-                    <td style={tdStyle}>
-                      <input type="number" min="0" step="0.5" value={editValues.indirect_hours}
-                        onChange={ev => setEditValues(p => ({ ...p, indirect_hours: ev.target.value }))}
-                        style={{ ...editInputStyle, width: 70 }} />
-                    </td>
-                    <td style={tdStyle}>
-                      <input type="number" min="0" step="0.5" value={editValues.rework_hours}
-                        onChange={ev => setEditValues(p => ({ ...p, rework_hours: ev.target.value }))}
-                        style={{ ...editInputStyle, width: 70 }} />
-                    </td>
+                    <td style={tdStyle}><input type="number" min="0" step="0.5" value={editValues.total_labor_hours} onChange={ev => setEditValues(p => ({ ...p, total_labor_hours: ev.target.value }))} style={{ ...editInputStyle, width: 70 }} /></td>
+                    <td style={tdStyle}><input type="number" min="0" step="0.5" value={editValues.indirect_hours} onChange={ev => setEditValues(p => ({ ...p, indirect_hours: ev.target.value }))} style={{ ...editInputStyle, width: 70 }} /></td>
+                    <td style={tdStyle}><input type="number" min="0" step="0.5" value={editValues.rework_hours} onChange={ev => setEditValues(p => ({ ...p, rework_hours: ev.target.value }))} style={{ ...editInputStyle, width: 70 }} /></td>
                     <td style={{ ...tdStyle, color: reworkPctColor, fontWeight: 500 }}>{reworkPct}%</td>
                     <td style={{ ...tdStyle, color: availColor, fontWeight: 500 }}>{avail}%</td>
-                    <td style={tdStyle}>
-                      <input type="text" value={editValues.notes}
-                        onChange={ev => setEditValues(p => ({ ...p, notes: ev.target.value }))}
-                        style={{ ...editInputStyle, width: 100 }} />
-                    </td>
+                    <td style={tdStyle}><input type="text" value={editValues.notes} onChange={ev => setEditValues(p => ({ ...p, notes: ev.target.value }))} style={{ ...editInputStyle, width: 100 }} /></td>
                     <td style={tdStyle}>
                       <div style={{ display: "flex", gap: 6 }}>
-                        <button onClick={handleSaveEdit} disabled={saving} style={{
-                          padding: "3px 10px", fontSize: 11,
-                          border: "1px solid #1D9E75", background: "#E1F5EE",
-                          color: "#0F6E56", borderRadius: 6, cursor: "pointer",
-                        }}>Save</button>
-                        <button onClick={() => { setEditingId(null); setEditValues({}); }} style={{
-                          padding: "3px 8px", fontSize: 11,
-                          border: "0.5px solid #ddd", background: "#fff",
-                          color: "#888", borderRadius: 6, cursor: "pointer",
-                        }}>Cancel</button>
+                        <button onClick={handleSaveEdit} disabled={saving} style={{ padding: "3px 10px", fontSize: 11, border: "1px solid #1D9E75", background: "#E1F5EE", color: "#0F6E56", borderRadius: 6, cursor: "pointer" }}>Save</button>
+                        <button onClick={() => { setEditingId(null); setEditValues({}); }} style={{ padding: "3px 8px", fontSize: 11, border: "0.5px solid #ddd", background: "#fff", color: "#888", borderRadius: 6, cursor: "pointer" }}>Cancel</button>
                       </div>
                     </td>
                   </tr>
@@ -319,12 +287,7 @@ export default function WeeklyLaborPanel({ onSaved }) {
                 <tr key={e.id} style={{ borderBottom: "0.5px solid #f0f0f0" }}>
                   <td style={tdStyle}>{formatWeek(e.week_start)}</td>
                   <td style={tdStyle}>
-                    <span style={{
-                      fontSize: 11, fontWeight: 500,
-                      background: days < 5 ? "#FAEEDA" : "#f0f0f0",
-                      color: days < 5 ? "#854F0B" : "#555",
-                      padding: "1px 6px", borderRadius: 6,
-                    }}>{days}d</span>
+                    <span style={{ fontSize: 11, fontWeight: 500, background: days < 5 ? "#FAEEDA" : "#f0f0f0", color: days < 5 ? "#854F0B" : "#555", padding: "1px 6px", borderRadius: 6 }}>{days}d</span>
                   </td>
                   <td style={tdStyle}>{e.total_labor_hours}</td>
                   <td style={tdStyle}>{e.indirect_hours}</td>
@@ -334,16 +297,8 @@ export default function WeeklyLaborPanel({ onSaved }) {
                   <td style={{ ...tdStyle, color: "#888" }}>{e.notes ?? "—"}</td>
                   <td style={tdStyle}>
                     <div style={{ display: "flex", gap: 6 }}>
-                      <button onClick={() => startEdit(e)} style={{
-                        padding: "3px 8px", fontSize: 11,
-                        border: "1px solid #378ADD", background: "#E6F1FB",
-                        color: "#0C447C", borderRadius: 6, cursor: "pointer",
-                      }}>Edit</button>
-                      <button onClick={() => handleDelete(e.id)} style={{
-                        padding: "3px 8px", fontSize: 11,
-                        border: "1px solid #E24B4A", background: "#FCEBEB",
-                        color: "#A32D2D", borderRadius: 6, cursor: "pointer",
-                      }}>Delete</button>
+                      <button onClick={() => startEdit(e)} style={{ padding: "3px 8px", fontSize: 11, border: "1px solid #378ADD", background: "#E6F1FB", color: "#0C447C", borderRadius: 6, cursor: "pointer" }}>Edit</button>
+                      <button onClick={() => handleDelete(e.id)} style={{ padding: "3px 8px", fontSize: 11, border: "1px solid #E24B4A", background: "#FCEBEB", color: "#A32D2D", borderRadius: 6, cursor: "pointer" }}>Delete</button>
                     </div>
                   </td>
                 </tr>
@@ -352,9 +307,7 @@ export default function WeeklyLaborPanel({ onSaved }) {
           </tbody>
         </table>
         {filteredEntries.length === 0 && (
-          <p style={{ textAlign: "center", color: "#aaa", padding: "24px", fontSize: 13 }}>
-            No weekly labor hours logged for {selectedYear}.
-          </p>
+          <p style={{ textAlign: "center", color: "#aaa", padding: "24px", fontSize: 13 }}>No weekly labor hours logged for {selectedYear}.</p>
         )}
       </div>
     </div>

@@ -55,34 +55,36 @@ function emptyDefectRow() {
 export default function WorkOrderPanel({ onSaved, unreadIds = new Set(), onMarkRead }) {
   const today = new Date();
 
-  const [workOrders, setWorkOrders]             = useState([]);
-  const [truckTypes, setTruckTypes]             = useState([]);
-  const [defectTypes, setDefectTypes]           = useState([]);
-  const [allDefects, setAllDefects]             = useState([]);
-  const [showModal, setShowModal]               = useState(false);
-  const [showHistory, setShowHistory]           = useState(false);
-  const [chartPeriod, setChartPeriod]           = useState("quarter");
-  const [chartYear, setChartYear]               = useState(today.getFullYear());
-  const [chartMonth, setChartMonth]             = useState(today.getMonth());
-  const [chartQuarter, setChartQuarter]         = useState(Math.floor(today.getMonth() / 3));
-  const [chartTruckType, setChartTruckType]     = useState("all");
-  const [weekStart, setWeekStart]               = useState(getWeekStart());
-  const [woRows, setWoRows]                     = useState([emptyWORow(nextId++)]);
-  const [saving, setSaving]                     = useState(false);
-  const [error, setError]                       = useState(null);
-  const [successMsg, setSuccessMsg]             = useState(null);
-  const [expandedWeeks, setExpanded]            = useState({});
-  const [expandedWO, setExpandedWO]             = useState({});
-  const [woDefects, setWoDefects]               = useState({});
-  const [editingId, setEditingId]               = useState(null);
-  const [editValues, setEditValues]             = useState({});
-  const [confirmWeek, setConfirmWeek]           = useState(null);
-  const [selectedYear, setSelectedYear]         = useState(today.getFullYear());
-  const [editingDefectId, setEditingDefectId]   = useState(null);
-  const [editDefectValues, setEditDefectValues] = useState({});
-  const [addingDefectWoId, setAddingDefectWoId] = useState(null);
-  const [newDefectRow, setNewDefectRow]         = useState({ defect_type_id: "" });
-  const [defectSaving, setDefectSaving]         = useState(false);
+  const [workOrders, setWorkOrders]               = useState([]);
+  const [truckTypes, setTruckTypes]               = useState([]);
+  const [defectTypes, setDefectTypes]             = useState([]);
+  const [allDefects, setAllDefects]               = useState([]);
+  const [showModal, setShowModal]                 = useState(false);
+  const [showHistory, setShowHistory]             = useState(false);
+  const [chartPeriod, setChartPeriod]             = useState("quarter");
+  const [chartYear, setChartYear]                 = useState(today.getFullYear());
+  const [chartMonth, setChartMonth]               = useState(today.getMonth());
+  const [chartQuarter, setChartQuarter]           = useState(Math.floor(today.getMonth() / 3));
+  const [chartTruckType, setChartTruckType]       = useState("all");
+  const [weekStart, setWeekStart]                 = useState(getWeekStart());
+  const [woRows, setWoRows]                       = useState([emptyWORow(nextId++)]);
+  const [saving, setSaving]                       = useState(false);
+  const [error, setError]                         = useState(null);
+  const [successMsg, setSuccessMsg]               = useState(null);
+  const [expandedWeeks, setExpanded]              = useState({});
+  const [expandedWO, setExpandedWO]               = useState({});
+  const [woDefects, setWoDefects]                 = useState({});
+  const [editingId, setEditingId]                 = useState(null);
+  const [editValues, setEditValues]               = useState({});
+  const [confirmWeek, setConfirmWeek]             = useState(null);
+  const [selectedYear, setSelectedYear]           = useState(today.getFullYear());
+  const [editingDefectId, setEditingDefectId]     = useState(null);
+  const [editDefectValues, setEditDefectValues]   = useState({});
+  const [addingDefectWoId, setAddingDefectWoId]   = useState(null);
+  const [newDefectRow, setNewDefectRow]           = useState({ defect_type_id: "" });
+  const [defectSaving, setDefectSaving]           = useState(false);
+  const [confirmDeleteYear, setConfirmDeleteYear] = useState(false);
+  const [deletingYear, setDeletingYear]           = useState(false);
 
   async function load() {
     const data = await getWorkOrders();
@@ -96,15 +98,22 @@ export default function WorkOrderPanel({ onSaved, unreadIds = new Set(), onMarkR
   }
 
   async function loadAllDefects() {
-  try {
-    const data = await getAllDefectBreakdowns();
-    setAllDefects(data);
-  } catch (err) {
-    console.error("Failed to load defect breakdowns:", err);
+    try {
+      const data = await getAllDefectBreakdowns();
+      setAllDefects(data);
+    } catch (err) {
+      console.error("Failed to load defect breakdowns:", err);
+    }
   }
-}
 
   useEffect(() => { load(); loadTypes(); loadAllDefects(); }, []);
+
+  // Auto-jump to most recent year if selected year gets deleted
+  useEffect(() => {
+    if (workOrders.length === 0) return;
+    const years = [...new Set(workOrders.map(wo => new Date(wo.week_start + "T12:00:00").getFullYear()))].sort((a, b) => b - a);
+    if (!years.includes(selectedYear)) setSelectedYear(years[0]);
+  }, [workOrders]);
 
   async function loadWODefects(woId) {
     const data = await getWorkOrderDefects(woId);
@@ -263,6 +272,20 @@ export default function WorkOrderPanel({ onSaved, unreadIds = new Set(), onMarkR
     if (onSaved) onSaved();
   }
 
+  async function handleDeleteYear() {
+    setDeletingYear(true);
+    try {
+      const wosToDelete = sortedWeeks.flatMap(w => grouped[w]);
+      await Promise.all(wosToDelete.map(wo => deleteWorkOrder(wo.id)));
+      setConfirmDeleteYear(false);
+      load();
+      loadAllDefects();
+      if (onSaved) onSaved();
+    } finally {
+      setDeletingYear(false);
+    }
+  }
+
   function handlePrintWeek(week, wos) {
     const totalDef = wos.reduce((sum, wo) => sum + wo.total_defects, 0);
     const dpu      = wos.length > 0 ? (totalDef / wos.length).toFixed(2) : "0.00";
@@ -276,42 +299,42 @@ export default function WorkOrderPanel({ onSaved, unreadIds = new Set(), onMarkR
   }
 
   function startEdit(wo) {
-  setError(null);
-  setEditingId(wo.id);
-  setEditValues({
-    work_order_num: wo.work_order_num,
-    truck_type:     wo.truck_type,
-    total_defects:  wo.total_defects,
-  });
-}
-
-async function saveEdit(wo) {
-  const truckToSave = editValues.truck_type || wo.truck_type;
-  if (!truckToSave) {
-    setError("Please select a truck type before saving.");
-    return;
-  }
-  setSaving(true);
-  setError(null);
-  try {
-    await updateWorkOrder(wo.id, {
-      work_order_num: editValues.work_order_num,
-      truck_type:     truckToSave,
-      total_defects:  Number(editValues.total_defects),
+    setError(null);
+    setEditingId(wo.id);
+    setEditValues({
+      work_order_num: wo.work_order_num,
+      truck_type:     wo.truck_type,
+      total_defects:  wo.total_defects,
     });
-    setEditingId(null);
-    setEditValues({});
-    setSuccessMsg("Work order updated.");
-    setTimeout(() => setSuccessMsg(null), 3000);
-    load();
-    if (onSaved) onSaved();
-  } catch (err) {
-    console.error("saveEdit error:", err);
-    setError("Save failed: " + err.message);
-  } finally {
-    setSaving(false);
   }
-}
+
+  async function saveEdit(wo) {
+    const truckToSave = editValues.truck_type || wo.truck_type;
+    if (!truckToSave) {
+      setError("Please select a truck type before saving.");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      await updateWorkOrder(wo.id, {
+        work_order_num: editValues.work_order_num,
+        truck_type:     truckToSave,
+        total_defects:  Number(editValues.total_defects),
+      });
+      setEditingId(null);
+      setEditValues({});
+      setSuccessMsg("Work order updated.");
+      setTimeout(() => setSuccessMsg(null), 3000);
+      load();
+      if (onSaved) onSaved();
+    } catch (err) {
+      console.error("saveEdit error:", err);
+      setError("Save failed: " + err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
 
   function startEditDefect(d) { setEditingDefectId(d.id); setEditDefectValues({ defect_type_id: String(d.defect_type_id) }); }
 
@@ -494,6 +517,22 @@ async function saveEdit(wo) {
             <div style={{ display: "flex", gap: 8 }}>
               <button onClick={() => handleDeleteWeek(confirmWeek)} style={{ padding: "8px 20px", background: "#E24B4A", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontSize: 13, fontWeight: 500, fontFamily: "inherit" }}>Yes, delete all</button>
               <button onClick={() => setConfirmWeek(null)} style={{ padding: "8px 16px", background: "#fff", border: "0.5px solid #ddd", borderRadius: 8, cursor: "pointer", fontSize: 13, fontFamily: "inherit" }}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CONFIRM DELETE YEAR MODAL */}
+      {confirmDeleteYear && (
+        <div onClick={e => { if (e.target === e.currentTarget) setConfirmDeleteYear(false); }} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
+          <div style={{ background: "#fff", borderRadius: 12, padding: 28, width: "90%", maxWidth: 440, boxShadow: "0 8px 32px rgba(0,0,0,0.12)" }}>
+            <p style={{ fontSize: 15, fontWeight: 500, color: "#A32D2D", margin: "0 0 8px" }}>Delete all {selectedYear} work orders?</p>
+            <p style={{ fontSize: 13, color: "#666", margin: "0 0 24px" }}>This will permanently delete all {sortedWeeks.reduce((sum, w) => sum + (grouped[w]?.length ?? 0), 0)} work orders across {sortedWeeks.length} weeks in {selectedYear}. This cannot be undone.</p>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={handleDeleteYear} disabled={deletingYear} style={{ padding: "8px 20px", background: "#E24B4A", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontSize: 13, fontWeight: 500, fontFamily: "inherit", opacity: deletingYear ? 0.6 : 1 }}>
+                {deletingYear ? "Deleting…" : "Yes, delete all"}
+              </button>
+              <button onClick={() => setConfirmDeleteYear(false)} style={{ padding: "8px 16px", background: "#fff", border: "0.5px solid #ddd", borderRadius: 8, cursor: "pointer", fontSize: 13, fontFamily: "inherit" }}>Cancel</button>
             </div>
           </div>
         </div>
@@ -684,6 +723,11 @@ async function saveEdit(wo) {
             {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
           </select>
         )}
+        {showHistory && sortedWeeks.length > 0 && (
+          <button onClick={() => setConfirmDeleteYear(true)} style={{ padding: "5px 12px", fontSize: 12, border: "1px solid #E24B4A", background: "#FCEBEB", color: "#A32D2D", borderRadius: 8, cursor: "pointer", fontFamily: "inherit", fontWeight: 500 }}>
+            Delete {selectedYear}
+          </button>
+        )}
       </div>
 
       {showHistory && sortedWeeks.length === 0 && <p style={{ fontSize: 13, color: "#aaa", textAlign: "center", padding: 24 }}>No work orders for {selectedYear}.</p>}
@@ -738,17 +782,16 @@ async function saveEdit(wo) {
                     </thead>
                     <tbody>
                       {wos.map(wo => (
-  <React.Fragment key={wo.id}>
-    <tr style={{ borderBottom: "0.5px solid #f5f5f5", background: "white" }}>
-      <td style={{ padding: "6px 16px" }}>
+                        <React.Fragment key={wo.id}>
+                          <tr style={{ borderBottom: "0.5px solid #f5f5f5", background: "white" }}>
+                            <td style={{ padding: "6px 16px" }}>
                               {editingId === wo.id
                                 ? <input type="text" value={editValues.work_order_num ?? ""} onChange={e => setEditValues(prev => ({ ...prev, work_order_num: e.target.value.toUpperCase() }))} style={{ ...inputStyle, width: 120 }} />
                                 : wo.work_order_num}
                             </td>
                             <td style={{ padding: "6px 16px" }}>
                               {editingId === wo.id ? (
-                                <select value={editValues.truck_type ?? ""} onChange={e => setEditValues(prev => ({ ...prev, truck_type: e.target.value }))} style={{ ...inputStyle, width: 130 }}>
-                                  <option value="">Select…</option>
+                                <select value={editValues.truck_type ?? wo.truck_type} onChange={e => setEditValues(prev => ({ ...prev, truck_type: e.target.value }))} style={{ ...inputStyle, width: 130 }}>
                                   {truckTypes.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
                                 </select>
                               ) : <span style={{ fontSize: 12, background: "#f0f0f0", color: "#555", padding: "2px 8px", borderRadius: 6 }}>{wo.truck_type}</span>}
@@ -766,7 +809,7 @@ async function saveEdit(wo) {
                                 {editingId === wo.id ? (
                                   <>
                                     <button onClick={() => saveEdit(wo)} disabled={saving} style={{ padding: "3px 10px", fontSize: 11, border: "1px solid #1D9E75", background: "#E1F5EE", color: "#0F6E56", borderRadius: 6, cursor: "pointer", opacity: saving ? 0.6 : 1 }}>{saving ? "…" : "Save"}</button>
-                                    <button onClick={() => { setEditingId(null); setEditValues({}); }} style={{ padding: "3px 8px", fontSize: 11, border: "0.5px solid #ddd", background: "#fff", color: "#888", borderRadius: 6, cursor: "pointer" }}>Cancel</button>
+                                    <button onClick={() => { setEditingId(null); setEditValues({}); setError(null); }} style={{ padding: "3px 8px", fontSize: 11, border: "0.5px solid #ddd", background: "#fff", color: "#888", borderRadius: 6, cursor: "pointer" }}>Cancel</button>
                                   </>
                                 ) : (
                                   <>
@@ -779,7 +822,7 @@ async function saveEdit(wo) {
                           </tr>
 
                           {expandedWO[wo.id] && (
-                            <tr key={`${wo.id}-defects`}>
+                            <tr>
                               <td colSpan={5} style={{ padding: "8px 16px 12px 32px", background: "#fafafa" }}>
                                 {woDefects[wo.id] && woDefects[wo.id].length > 0 ? (
                                   <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, marginBottom: 8 }}>
@@ -835,8 +878,8 @@ async function saveEdit(wo) {
                             </tr>
                           )}
                         </React.Fragment>
-      ))}
-    </tbody>
+                      ))}
+                    </tbody>
                   </table>
                 )}
               </div>
