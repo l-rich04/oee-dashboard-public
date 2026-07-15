@@ -349,10 +349,33 @@ export async function changePassword(currentPassword, newPassword) {
 }
 
 export async function updateWorkOrder(id, data) {
-  const res = await fetch(`${API}/work-orders/${id}`, {
+  const res = await fetch(`${BASE}/work-orders/${id}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });
+  if (!res.ok) throw new Error("Failed to update work order");
+  const text = await res.text();
+  return text ? JSON.parse(text) : {};
+}
+
+export async function getIssueCategories() {
+  const res = await fetch(`${BASE}/issue-categories`);
+  if (!res.ok) throw new Error(await res.text());
   return res.json();
+}
+ 
+export async function createIssueCategory(issueType, name) {
+  const res = await fetch(`${BASE}/issue-categories`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ issue_type: issueType, name }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+ 
+export async function deleteIssueCategory(id) {
+  const res = await fetch(`${BASE}/issue-categories/${id}`, { method: "DELETE" });
+  if (!res.ok) throw new Error(await res.text());
 }

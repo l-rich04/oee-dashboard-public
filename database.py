@@ -92,12 +92,17 @@ class DowntimeLog(Base):
 class OEEGoals(Base):
     __tablename__ = "oee_goals"
 
-    id                 = Column(Integer, primary_key=True, index=True)
-    annual_dpu_goal    = Column(Float, default=1.62)
-    quarterly_dpu_goal = Column(Float, default=3.53)
-    weekly_trucks_min  = Column(Integer, default=14)
-    weekly_trucks_max  = Column(Integer, default=18)
-    updated_at         = Column(DateTime, default=datetime.utcnow)
+    id                    = Column(Integer, primary_key=True, index=True)
+    annual_dpu_goal       = Column(Float,   default=1.62)
+    quarterly_dpu_goal    = Column(Float,   default=3.53)
+    weekly_trucks_min     = Column(Integer, default=14)
+    weekly_trucks_max     = Column(Integer, default=18)
+    alert_oee_min         = Column(Float,   default=60.0)
+    alert_availability_min = Column(Float,  default=50.0)
+    alert_performance_min = Column(Float,   default=50.0)
+    alert_quality_min     = Column(Float,   default=50.0)
+    alert_stale_days      = Column(Integer, default=14)
+    updated_at            = Column(DateTime, default=datetime.utcnow)
 
 
 class ReworkHours(Base):
@@ -151,6 +156,15 @@ class IndirectLabor(Base):
     notes             = Column(Text, nullable=True)
     created_at        = Column(DateTime, default=datetime.utcnow)
     updated_at        = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class IssueCategory(Base):
+    __tablename__ = "issue_categories"
+
+    id         = Column(Integer, primary_key=True, index=True)
+    issue_type = Column(String, nullable=False)
+    name       = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 
 def get_db():

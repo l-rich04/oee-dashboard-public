@@ -1,0 +1,181 @@
+import { useState, useEffect } from "react";
+import { getIssueCategories, createIssueCategory, deleteIssueCategory } from "../api/issues";
+
+function titleCase(str) {
+  return str.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function CategoryColumn({ title, issueType, categories, onAdd, onDelete, adding }) {
+  const [newName, setNewName] = useState("");
+
+  async function handleAdd() {
+    if (!newName.trim() || adding) return;
+    await onAdd(issueType, newName.trim());
+    setNewName("");
+  }
+
+  return (
+    <div style={{ flex: 1 }}>
+      <p style={{ fontSize: 12, fontWeight: 500, color: "#555", margin: "0 0 10px" }}>{title}</p>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10, minHeight: 28 }}>
+        {categories.length === 0 ? (
+          <span style={{ fontSize: 12, color: "#aaa", fontStyle: "italic" }}>No categories yet</span>
+        ) : (
+          categories.map(c => (
+            <span key={c.id} style={{
+              display: "flex", alignItems: "center", gap: 6,
+              fontSize: 12, background: "#f0f0f0", color: "#333",
+              padding: "4px 8px 4px 10px", borderRadius: 8,
+            }}>
+              {titleCase(c.name)}
+              <button onClick={() => onDelete(c.id)} style={{
+                background: "none", border: "none", cursor: "pointer",
+                color: "#A32D2D", fontSize: 13, lineHeight: 1, padding: 0,
+              }}>✕</button>
+            </span>
+          ))
+        )}
+      </div>
+      <div style={{ display: "flex", gap: 6 }}>
+        <input
+          type="text"
+          value={newName}
+          onChange={e => setNewName(e.target.value)}
+          onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); handleAdd(); } }}
+          placeholder="New category…"
+          style={{
+            flex: 1, padding: "6px 10px", fontSize: 12,
+            border: "0.5px solid #ddd", borderRadius: 8,
+            fontFamily: "inherit", boxSizing: "border-box",
+          }}
+        />
+        <button onClick={handleAdd} disabled={!newName.trim() || adding} style={{
+          padding: "6px 12px", fontSize: 12, fontWeight: 500,
+          background: newName.trim() && !adding ? "#1D9E75" : "#ccc", color: "#fff",
+          border: "none", borderRadius: 8,
+          cursor: newName.trim() && !adding ? "pointer" : "not-allowed",
+          fontFamily: "inherit",
+        }}>
+          + Add
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export default function IssueCategoryManagePanel({ onChanged }) {
+  const [showModal, setShowModal] = useState(false);
+  const [categories, setCategories] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [error, setError] = useState(null);
+
+  async function load() {
+    setLoading(true);
+    try {
+      const data = await getIssueCategories();
+      setCategories(data);
+    } catch (err) {
+      setError("Failed to load categories.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { if (showModal) load(); }, [showModal]);
+
+  async function handleAdd(issueType, name) {
+    setAdding(true);
+    setError(null);
+    try {
+      await createIssueCategory(issueType, name);
+      await load();
+      if (onChanged) onChanged();
+    } catch (err) {
+      setError(err.message || "Failed to add category.");
+    } finally {
+      setAdding(false);
+    }
+  }
+
+  async function handleDelete(id) {
+    setError(null);
+    try {
+      await deleteIssueCategory(id);
+      await load();
+      if (onChanged) onChanged();
+    } catch (err) {
+      setError(err.message || "Failed to delete category.");
+    }
+  }
+
+  const partCategories    = categories.filter(c => c.issue_type === "part");
+  const processCategories = categories.filter(c => c.issue_type === "process");
+
+  return (
+    <>
+      <button onClick={() => setShowModal(true)} style={{
+        padding: "8px 16px", background: "#fff", color: "#555",
+        border: "1px solid #ddd", borderRadius: 8, fontSize: 13,
+        fontWeight: 500, cursor: "pointer", fontFamily: "inherit",
+      }}>
+        Manage Issues
+      </button>
+
+      {showModal && (
+        <div onClick={e => { if (e.target === e.currentTarget) setShowModal(false); }} style={{
+          position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)",
+          display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000,
+        }}>
+          <div style={{
+            background: "#fff", borderRadius: 12, padding: 28,
+            width: "90%", maxWidth: 560, boxShadow: "0 8px 32px rgba(0,0,0,0.12)",
+          }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+              <p style={{ fontSize: 15, fontWeight: 500, margin: 0 }}>Manage Issue Categories</p>
+              <button onClick={() => setShowModal(false)} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#aaa" }}>✕</button>
+            </div>
+            <p style={{ fontSize: 12, color: "#888", margin: "0 0 18px" }}>
+              These are the categories foremen can pick from when submitting a Part or Process issue.
+            </p>
+
+            {loading ? (
+              <p style={{ fontSize: 13, color: "#aaa", textAlign: "center", padding: "20px 0" }}>Loading…</p>
+            ) : (
+              <div style={{ display: "flex", gap: 24 }}>
+                <CategoryColumn
+                  title="Part Issue Categories"
+                  issueType="part"
+                  categories={partCategories}
+                  onAdd={handleAdd}
+                  onDelete={handleDelete}
+                  adding={adding}
+                />
+                <CategoryColumn
+                  title="Process Issue Categories"
+                  issueType="process"
+                  categories={processCategories}
+                  onAdd={handleAdd}
+                  onDelete={handleDelete}
+                  adding={adding}
+                />
+              </div>
+            )}
+
+            {error && <p style={{ color: "#A32D2D", fontSize: 12, margin: "12px 0 0" }}>{error}</p>}
+
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 20 }}>
+              <button onClick={() => setShowModal(false)} style={{
+                padding: "8px 20px", background: "#1D9E75", color: "#fff",
+                border: "none", borderRadius: 8, fontSize: 13, fontWeight: 500,
+                cursor: "pointer", fontFamily: "inherit",
+              }}>
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}

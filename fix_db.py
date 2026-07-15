@@ -1,60 +1,33 @@
-from database import engine, SessionLocal, TruckType, DefectType
-from sqlalchemy import text
+import sqlite3
 
-with engine.connect() as conn:
-    # Create new tables if they don't exist
-    conn.execute(text("""
-        CREATE TABLE IF NOT EXISTS truck_types (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name VARCHAR UNIQUE NOT NULL,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
-    """))
-    conn.execute(text("""
-        CREATE TABLE IF NOT EXISTS defect_types (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name VARCHAR UNIQUE NOT NULL,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
-    """))
-    conn.execute(text("""
-        CREATE TABLE IF NOT EXISTS work_order_defects (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            work_order_id INTEGER NOT NULL REFERENCES work_orders(id),
-            defect_type_id INTEGER NOT NULL REFERENCES defect_types(id),
-            quantity INTEGER NOT NULL DEFAULT 1,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
-    """))
+conn = sqlite3.connect("oee.db")
+cur  = conn.cursor()
 
-    # Add is_read to work_orders if it doesn't exist
+migrations = [
+    ("oee_goals", "alert_oee_min",          "REAL DEFAULT 60.0"),
+    ("oee_goals", "alert_availability_min", "REAL DEFAULT 50.0"),
+    ("oee_goals", "alert_performance_min",  "REAL DEFAULT 50.0"),
+    ("oee_goals", "alert_quality_min",      "REAL DEFAULT 50.0"),
+    ("oee_goals", "alert_stale_days",       "INTEGER DEFAULT 14"),
+]
+
+for table, col, definition in migrations:
     try:
-        conn.execute(text("ALTER TABLE work_orders ADD COLUMN is_read BOOLEAN DEFAULT 0"))
-        conn.commit()
-        print("Added is_read to work_orders.")
+        cur.execute(f"ALTER TABLE {table} ADD COLUMN {col} {definition}")
+        print(f"Added {table}.{col}")
     except Exception as e:
-        print("is_read column may already exist:", e)
+        print(f"Skipped {table}.{col}: {e}")
 
-    conn.commit()
-    print("Tables created.")
+cur.execute("""
+    CREATE TABLE IF NOT EXISTS issue_categories (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        issue_type TEXT NOT NULL,
+        name       TEXT NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+""")
+print("issue_categories table ready")
 
-# Seed starting data
-db = SessionLocal()
-try:
-    truck_names  = ["Monmouth", "Alum Comm", "PennDOT", "Steel"]
-    defect_names = ["Sharp Edges", "Missing Parts"]
-
-    for name in truck_names:
-        if not db.query(TruckType).filter(TruckType.name == name).first():
-            db.add(TruckType(name=name))
-
-    for name in defect_names:
-        if not db.query(DefectType).filter(DefectType.name == name).first():
-            db.add(DefectType(name=name))
-
-    db.commit()
-    print("Seed data added.")
-finally:
-    db.close()
-
+conn.commit()
+conn.close()
 print("Done.")
