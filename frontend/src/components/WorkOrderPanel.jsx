@@ -323,9 +323,17 @@ export default function WorkOrderPanel({ onSaved, unreadIds = new Set(), onMarkR
   function startEdit(wo) {
     setError(null);
     setEditingId(wo.id);
+    // Older work orders can have a truck_type like "n/a" that isn't a real
+    // option in the dropdown anymore. If we preload that mismatched value,
+    // the <select> visually falls back to showing its first option while
+    // React still thinks "n/a" is selected — so clicking that first option
+    // does nothing (no real change), and you have to pick something else
+    // first before picking the one you actually wanted. Leaving it blank
+    // when invalid avoids that trap entirely.
+    const validTruckType = truckTypes.some(t => t.name === wo.truck_type) ? wo.truck_type : "";
     setEditValues({
       work_order_num: wo.work_order_num,
-      truck_type:     wo.truck_type,
+      truck_type:     validTruckType,
       total_defects:  wo.total_defects,
     });
   }
@@ -672,60 +680,116 @@ export default function WorkOrderPanel({ onSaved, unreadIds = new Set(), onMarkR
               </div>
 
               <div>
-                <p style={{ fontSize: 13, fontWeight: 500, color: "#555", margin: "0 0 4px" }}>Trucks Produced by Type</p>
-                <p style={{ fontSize: 11, color: "#aaa", margin: "0 0 12px" }}>Truck Count — {periodLabel}</p>
+                <p style={{ fontSize: 13, fontWeight: 500, color: "#555", margin: "0 0 4px" }}>DPU by Truck Type</p>
+                <p style={{ fontSize: 11, color: "#aaa", margin: "0 0 12px" }}>AVG Defects per Unit — {periodLabel}</p>
                 {(() => {
                   const byTruck = {};
                   filteredWorkOrders.forEach(wo => {
-                    byTruck[wo.truck_type] = (byTruck[wo.truck_type] || 0) + 1;
+                    if (!byTruck[wo.truck_type]) byTruck[wo.truck_type] = { defects: 0, count: 0 };
+                    byTruck[wo.truck_type].defects += wo.total_defects;
+                    byTruck[wo.truck_type].count   += 1;
                   });
-                  const truckCounts = Object.entries(byTruck)
+                  const dpuByTruck = Object.entries(byTruck)
                     .filter(([name]) => name && name !== "n/a")
-                    .map(([name, count]) => ({ name, count }))
-                    .sort((a, b) => b.count - a.count);
-                  if (truckCounts.length === 0) return <p style={{ fontSize: 12, color: "#aaa", textAlign: "center", paddingTop: 80 }}>No data for this period.</p>;
-                  const TruckCountTooltip = ({ active, payload, label }) => {
+                    .map(([name, d]) => ({ name, dpu: Math.round((d.defects / d.count) * 100) / 100, count: d.count }))
+                    .sort((a, b) => b.dpu - a.dpu);
+                  if (dpuByTruck.length === 0) return <p style={{ fontSize: 12, color: "#aaa", textAlign: "center", paddingTop: 80 }}>No data for this period.</p>;
+                  const maxDpu = Math.max(...dpuByTruck.map(d => d.dpu));
+                  const DpuTooltip = ({ active, payload, label }) => {
                     if (!active || !payload?.length) return null;
                     const d = payload[0]?.payload;
                     return (
                       <div style={{ background: "#fff", border: "0.5px solid #eee", borderRadius: 8, padding: "10px 14px", fontSize: 12 }}>
                         <p style={{ margin: "0 0 4px", fontWeight: 500, color: "#333" }}>{label}</p>
-                        <p style={{ margin: 0, color: "#378ADD" }}>{d?.count} truck{d?.count !== 1 ? "s" : ""}</p>
+                        <p style={{ margin: "0 0 2px", color: "#378ADD" }}>DPU: <strong>{d?.dpu}</strong></p>
+                        <p style={{ margin: 0, color: "#888" }}>{d?.count} work order{d?.count !== 1 ? "s" : ""}</p>
                       </div>
                     );
                   };
                   return (
                     <ResponsiveContainer width="100%" height={240}>
-                      <BarChart data={truckCounts} layout="vertical" margin={{ top: 0, right: 50, left: 0, bottom: 0 }}>
+                      <BarChart data={dpuByTruck} layout="vertical" margin={{ top: 0, right: 50, left: 0, bottom: 0 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" horizontal={false} />
-                        <XAxis type="number" tick={{ fontSize: 10 }} allowDecimals={false} />
+                        <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={v => v.toFixed(2)} />
                         <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={90} />
-                        <Tooltip content={<TruckCountTooltip />} />
-                        <Bar dataKey="count" name="Trucks" fill="#378ADD" radius={[0, 3, 3, 0]} label={{ position: "right", fontSize: 10, fill: "#888" }} />
+                        <Tooltip content={<DpuTooltip />} />
+                        <Bar dataKey="dpu" name="DPU" radius={[0, 3, 3, 0]} label={{ position: "right", fontSize: 10, fill: "#888", formatter: v => v.toFixed(2) }}>
+                          {dpuByTruck.map((entry) => (
+                            <Cell key={entry.name} fill={entry.dpu > maxDpu * 0.66 ? "#E24B4A" : entry.dpu > maxDpu * 0.33 ? "#854F0B" : "#1D9E75"} />
+                          ))}
+                        </Bar>
                       </BarChart>
                     </ResponsiveContainer>
                   );
                 })()}
-                <p style={{ fontSize: 10, color: "#aaa", margin: "6px 0 0" }}>Number of trucks produced per type, for the selected period and truck type filter.</p>
+                <p style={{ fontSize: 10, color: "#aaa", margin: "6px 0 0" }}>Green = Lowest DPU · Amber = Moderate · Red = Highest DPU</p>
               </div>
             </div>
 
             <div>
-              <p style={{ fontSize: 13, fontWeight: 500, color: "#555", margin: "0 0 12px" }}>Defects by Week</p>
-              {barData.length === 0 ? (
-                <p style={{ fontSize: 12, color: "#aaa", textAlign: "center", paddingTop: 40 }}>No Weekly Data.</p>
-              ) : (
-                <ResponsiveContainer width="100%" height={200}>
-                  <BarChart data={barData} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                    <XAxis dataKey="week" tick={{ fontSize: 10 }} />
-                    <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
-                    <Tooltip />
-                    <Legend wrapperStyle={{ fontSize: 11 }} />
-                    {barTypes.map((type, index) => <Bar key={type} dataKey={type} stackId="a" fill={CHART_COLORS[index % CHART_COLORS.length]} />)}
-                  </BarChart>
-                </ResponsiveContainer>
-              )}
+              {(() => {
+                const byTruck = {};
+                filteredWorkOrders.forEach(wo => {
+                  byTruck[wo.truck_type] = (byTruck[wo.truck_type] || 0) + 1;
+                });
+                const rawCounts = Object.entries(byTruck)
+                  .filter(([name]) => name && name !== "n/a")
+                  .map(([name, count]) => ({ name, count }))
+                  .sort((a, b) => b.count - a.count);
+                const totalTrucks = rawCounts.reduce((sum, t) => sum + t.count, 0);
+                const truckCounts = rawCounts.map(t => ({
+                  ...t,
+                  pct: totalTrucks > 0 ? Math.round((t.count / totalTrucks) * 100) : 0,
+                }));
+
+                return (
+                  <>
+                    <p style={{ fontSize: 13, fontWeight: 500, color: "#555", margin: "0 0 12px" }}>
+                      Trucks Produced by Type
+                      {totalTrucks > 0 && (
+                        <span style={{ fontSize: 12, color: "#aaa", fontWeight: 400, marginLeft: 8 }}>
+                          ({totalTrucks} total truck{totalTrucks !== 1 ? "s" : ""} · {periodLabel})
+                        </span>
+                      )}
+                    </p>
+                    {truckCounts.length === 0 ? (
+                      <p style={{ fontSize: 12, color: "#aaa", textAlign: "center", paddingTop: 40 }}>No data for this period.</p>
+                    ) : (() => {
+                      const TruckCountTooltip = ({ active, payload, label }) => {
+                        if (!active || !payload?.length) return null;
+                        const d = payload[0]?.payload;
+                        return (
+                          <div style={{ background: "#fff", border: "0.5px solid #eee", borderRadius: 8, padding: "10px 14px", fontSize: 12 }}>
+                            <p style={{ margin: "0 0 4px", fontWeight: 500, color: "#333" }}>{label}</p>
+                            <p style={{ margin: 0, color: "#378ADD" }}>{d?.count} truck{d?.count !== 1 ? "s" : ""} · {d?.pct}% of total</p>
+                          </div>
+                        );
+                      };
+                      const CountLabel = (props) => {
+                        const { x, y, width, value, index } = props;
+                        const entry = truckCounts[index];
+                        return (
+                          <text x={x + width / 2} y={y - 6} textAnchor="middle" fontSize={11} fill="#555">
+                            {value} ({entry?.pct ?? 0}%)
+                          </text>
+                        );
+                      };
+                      return (
+                        <ResponsiveContainer width="100%" height={200}>
+                          <BarChart data={truckCounts} margin={{ top: 20, right: 0, left: -20, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                            <XAxis dataKey="name" tick={{ fontSize: 10 }} />
+                            <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
+                            <Tooltip content={<TruckCountTooltip />} />
+                            <Bar dataKey="count" name="Trucks" fill="#378ADD" radius={[3, 3, 0, 0]} label={<CountLabel />} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      );
+                    })()}
+                  </>
+                );
+              })()}
+          
             </div>
           </>
         )}
@@ -810,7 +874,8 @@ export default function WorkOrderPanel({ onSaved, unreadIds = new Set(), onMarkR
                             </td>
                             <td style={{ padding: "6px 16px" }}>
                               {editingId === wo.id ? (
-                                <select value={editValues.truck_type ?? wo.truck_type} onChange={e => setEditValues(prev => ({ ...prev, truck_type: e.target.value }))} style={{ ...inputStyle, width: 130 }}>
+                                <select value={editValues.truck_type} onChange={e => setEditValues(prev => ({ ...prev, truck_type: e.target.value }))} style={{ ...inputStyle, width: 130 }}>
+                                  <option value="">Select truck type…</option>
                                   {truckTypes.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
                                 </select>
                               ) : <span style={{ fontSize: 12, background: "#f0f0f0", color: "#555", padding: "2px 8px", borderRadius: 6 }}>{wo.truck_type}</span>}
