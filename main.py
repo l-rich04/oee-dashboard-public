@@ -1,10 +1,11 @@
+import hashlib
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from datetime import datetime, date, timedelta
 from typing import Optional
-from database import Base, engine, get_db, Issue, IssueUpdate, WorkOrder, DowntimeLog, OEEGoals, ReworkHours, Foreman, GoalHistory, IndirectLabor, Supervisor, TruckType, DefectType, WorkOrderDefect, IssueCategory
+from database import Base, engine, get_db, Issue, IssueUpdate, WorkOrder, DowntimeLog, OEEGoals, ReworkHours, Foreman, GoalHistory, IndirectLabor, Supervisor, TruckType, DefectType, WorkOrderDefect, IssueCategory, DashboardSettings
 
 Base.metadata.create_all(bind=engine)
 
@@ -16,6 +17,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def hash_pw(pw: str) -> str:
+    return hashlib.sha256(pw.encode()).hexdigest()
 
 
 # --- Schemas ---
@@ -88,6 +93,22 @@ class WorkOrderOut(BaseModel):
     total_defects:   int
     week_start:      str
     created_at:      datetime
+
+    model_config = {"from_attributes": True}
+
+
+class WorkOrderDefectCreate(BaseModel):
+    defect_type_id: int
+    quantity:       int = 1
+
+
+class WorkOrderDefectOut(BaseModel):
+    id:               int
+    work_order_id:    int
+    defect_type_id:   int
+    defect_type_name: Optional[str] = None
+    quantity:         int
+    created_at:       datetime
 
     model_config = {"from_attributes": True}
 
@@ -477,6 +498,22 @@ def delete_issue_category(cat_id: int, db: Session = Depends(get_db)):
 
 @app.post("/work-orders", response_model=WorkOrderOut, status_code=201)
 def create_work_order(data: WorkOrderCreate, db: Session = Depends(get_db)):
+    new_year = data.week_start[:4]  # "2026-07-13" -> "2026"
+
+    existing = db.query(WorkOrder).filter(
+        WorkOrder.work_order_num == data.work_order_num,
+        WorkOrder.week_start.like(f"{new_year}-%"),
+    ).first()
+    if existing:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Work order {data.work_order_num} already exists for {new_year} "
+                f"(week of {existing.week_start}). Add defects to the existing "
+                f"entry instead of creating a new one."
+            ),
+        )
+
     wo = WorkOrder(**data.model_dump())
     db.add(wo)
     db.commit()
@@ -494,9 +531,16 @@ def update_work_order(wo_id: int, data: dict, db: Session = Depends(get_db)):
     wo = db.query(WorkOrder).filter(WorkOrder.id == wo_id).first()
     if not wo:
         raise HTTPException(status_code=404, detail="Work order not found")
+
     if "work_order_num" in data: wo.work_order_num = data["work_order_num"]
     if "truck_type"     in data: wo.truck_type     = data["truck_type"]
-    if "total_defects"  in data: wo.total_defects  = int(data["total_defects"])
+    # total_defects is intentionally NOT settable here — it is always
+    # derived from the real WorkOrderDefect rows, never taken from the
+    # request body, no matter what the caller sends.
+
+    rows = db.query(WorkOrderDefect).filter(WorkOrderDefect.work_order_id == wo_id).all()
+    wo.total_defects = sum(r.quantity for r in rows)
+
     db.commit()
     db.refresh(wo)
     return wo
@@ -507,6 +551,12 @@ def delete_work_order(wo_id: int, db: Session = Depends(get_db)):
     wo = db.query(WorkOrder).filter(WorkOrder.id == wo_id).first()
     if not wo:
         raise HTTPException(status_code=404, detail="Work order not found")
+
+    # Delete this work order's defect rows first, so nothing orphaned is
+    # left behind for a future work order to accidentally inherit (SQLite
+    # can reuse a deleted row's id for the next new record).
+    db.query(WorkOrderDefect).filter(WorkOrderDefect.work_order_id == wo_id).delete()
+
     db.delete(wo)
     db.commit()
     return
@@ -531,22 +581,43 @@ def get_work_order_defects(wo_id: int, db: Session = Depends(get_db)):
     return result
 
 
-@app.post("/work-orders/{wo_id}/defects", status_code=201)
-def add_work_order_defect(wo_id: int, data: dict, db: Session = Depends(get_db)):
+@app.post("/work-orders/{wo_id}/defects", response_model=WorkOrderDefectOut, status_code=201)
+def add_wo_defect(wo_id: int, data: WorkOrderDefectCreate, db: Session = Depends(get_db)):
     wo = db.query(WorkOrder).filter(WorkOrder.id == wo_id).first()
     if not wo:
         raise HTTPException(status_code=404, detail="Work order not found")
-    defect = WorkOrderDefect(
-        work_order_id  = wo_id,
-        defect_type_id = data["defect_type_id"],
-        quantity       = data.get("quantity", 1),
-    )
-    db.add(defect)
-    total = db.query(WorkOrderDefect).filter(WorkOrderDefect.work_order_id == wo_id).count() + 1
-    wo.total_defects = total
+
+    existing = db.query(WorkOrderDefect).filter(
+        WorkOrderDefect.work_order_id == wo_id,
+        WorkOrderDefect.defect_type_id == data.defect_type_id,
+    ).first()
+
+    if existing:
+        # Same defect type already on this work order — add to its quantity
+        # rather than creating a duplicate row. 3 (existing) + 2 (new) = 5,
+        # exactly the same total as two separate rows of 3 and 2 would give.
+        existing.quantity += data.quantity
+        defect = existing
+    else:
+        defect = WorkOrderDefect(
+            work_order_id=wo_id,
+            defect_type_id=data.defect_type_id,
+            quantity=data.quantity,
+        )
+        db.add(defect)
+
+    db.flush()
+    all_defects      = db.query(WorkOrderDefect).filter(WorkOrderDefect.work_order_id == wo_id).all()
+    wo.total_defects = sum(d.quantity for d in all_defects)
     db.commit()
     db.refresh(defect)
-    return defect
+    dt = db.query(DefectType).filter(DefectType.id == data.defect_type_id).first()
+    return WorkOrderDefectOut(
+        id=defect.id, work_order_id=defect.work_order_id,
+        defect_type_id=defect.defect_type_id,
+        defect_type_name=dt.name if dt else None,
+        quantity=defect.quantity, created_at=defect.created_at,
+    )
 
 
 @app.delete("/work-orders/{wo_id}/defects/{defect_id}", status_code=204)
@@ -561,7 +632,8 @@ def delete_work_order_defect(wo_id: int, defect_id: int, db: Session = Depends(g
     db.commit()
     wo = db.query(WorkOrder).filter(WorkOrder.id == wo_id).first()
     if wo:
-        wo.total_defects = db.query(WorkOrderDefect).filter(WorkOrderDefect.work_order_id == wo_id).count()
+        rows = db.query(WorkOrderDefect).filter(WorkOrderDefect.work_order_id == wo_id).all()
+        wo.total_defects = sum(r.quantity for r in rows)
         db.commit()
     return
 
@@ -1151,8 +1223,8 @@ def export_all(db: Session = Depends(get_db)):
 @app.post("/auth/verify")
 def verify_password(data: dict, db: Session = Depends(get_db)):
     password = data.get("password", "")
-    supervisor = db.query(Supervisor).filter(Supervisor.name == f"__password__{password}").first()
-    if supervisor or password == "1234":
+    setting = db.query(DashboardSettings).first()
+    if setting and hash_pw(password) == setting.password_hash:
         return {"ok": True}
     raise HTTPException(status_code=401, detail="Incorrect password")
 
@@ -1161,13 +1233,12 @@ def verify_password(data: dict, db: Session = Depends(get_db)):
 def change_password(data: dict, db: Session = Depends(get_db)):
     current  = data.get("current_password", "")
     new_pass = data.get("new_password", "")
-    old_record = db.query(Supervisor).filter(Supervisor.name == f"__password__{current}").first()
-    if not old_record and current != "1234":
+    setting = db.query(DashboardSettings).first()
+    if not setting or hash_pw(current) != setting.password_hash:
         raise HTTPException(status_code=401, detail="Current password is incorrect")
-    if old_record:
-        old_record.name = f"__password__{new_pass}"
-    else:
-        new_record = Supervisor(name=f"__password__{new_pass}")
-        db.add(new_record)
+    if len(new_pass) < 4:
+        raise HTTPException(status_code=400, detail="New password must be at least 4 characters")
+    setting.password_hash = hash_pw(new_pass)
+    setting.updated_at = datetime.utcnow()
     db.commit()
     return {"ok": True}

@@ -3,12 +3,12 @@ One-time fix: recalculates total_defects on every work order to match the
 actual sum of its WorkOrderDefect rows. Fixes stale totals left over from
 before the total became purely derived (e.g. from the old editable-total
 field, or manual /docs testing that set total_defects directly).
- 
+
 Run once from your backend folder:
     python recompute_totals.py
 """
 from database import SessionLocal, WorkOrder, WorkOrderDefect
- 
+
 if __name__ == "__main__":
     db = SessionLocal()
     try:
@@ -21,7 +21,7 @@ if __name__ == "__main__":
                 print(f"Work order {wo.work_order_num} (id={wo.id}): {wo.total_defects} -> {real_total}")
                 wo.total_defects = real_total
                 fixed += 1
- 
+
         if fixed == 0:
             print("Every work order's total_defects already matches its rows — nothing to fix.")
         else:
