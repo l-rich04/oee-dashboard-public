@@ -160,8 +160,8 @@ export default function SupervisorDashboard() {
   const knownWorkOrderIds   = useRef(null);
   const prevAlertTitles     = useRef("");
   // Persistent read state that survives 30s polls
-  const readIssueIds     = useRef(new Set(JSON.parse(sessionStorage.getItem("readIssueIds") || "[]")));
-  const readWorkOrderIds = useRef(new Set(JSON.parse(sessionStorage.getItem("readWorkOrderIds") || "[]")));
+  const readIssueIds     = useRef(new Set(JSON.parse(localStorage.getItem("readIssueIds") || "[]")));
+  const readWorkOrderIds = useRef(new Set(JSON.parse(localStorage.getItem("readWorkOrderIds") || "[]")));
 
   useEffect(() => {
     if (!authed) return;
@@ -435,7 +435,7 @@ export default function SupervisorDashboard() {
   async function markRead(issueId) {
     await markIssueRead(issueId);
     readIssueIds.current.add(issueId);
-    sessionStorage.setItem("readIssueIds", JSON.stringify([...readIssueIds.current]));
+    localStorage.setItem("readIssueIds", JSON.stringify([...readIssueIds.current]));
     setIssues(prev => prev.map(i => i.id === issueId ? { ...i, is_read: true } : i));
   }
 
@@ -812,7 +812,7 @@ export default function SupervisorDashboard() {
                     onMarkRead={async (id) => {
                       await markWorkOrderRead(id);
                       readWorkOrderIds.current.add(id);
-                      sessionStorage.setItem("readWorkOrderIds", JSON.stringify([...readWorkOrderIds.current]));
+                      localStorage.setItem("readWorkOrderIds", JSON.stringify([...readWorkOrderIds.current]));
                       setWorkOrders(prev => prev.map(wo => wo.id === id ? { ...wo, is_read: true } : wo));
                     }}
                   />
