@@ -89,7 +89,6 @@ function computeAlerts(oeeSummary, issues) {
   const qualMin   = Number(goals.alert_quality_min      ?? 50);
   const staleDays = Number(goals.alert_stale_days       ?? 14);
 
-  // Yearly OEE metrics
   if (oeeSummary.oee > 0 && oeeSummary.oee < oeeMin) {
     alerts.push({ severity: "critical", title: `OEE dropped below ${oeeMin}% — this year ${oeeSummary.oee}%`, detail: "Review Availability, Performance, and Quality metrics." });
   }
@@ -102,18 +101,13 @@ function computeAlerts(oeeSummary, issues) {
   if (oeeSummary.quality > 0 && oeeSummary.quality < qualMin) {
     alerts.push({ severity: "critical", title: `Quality dropped below ${qualMin}% — this year ${oeeSummary.quality}%`, detail: "DPU is above quarterly goal." });
   }
-
-  // Yearly DPU vs annual goal
   if (oeeSummary.yearly_dpu > 0 && oeeSummary.yearly_dpu > goals.annual_dpu_goal) {
     alerts.push({ severity: "critical", title: `Yearly DPU exceeded annual goal — ${oeeSummary.yearly_dpu} vs ${goals.annual_dpu_goal} target`, detail: "Review defect breakdown in Work Orders." });
   }
-
-  // Quarterly DPU vs quarterly goal
   if (oeeSummary.quarterly_dpu > 0 && oeeSummary.quarterly_dpu > goals.quarterly_dpu_goal) {
     alerts.push({ severity: "critical", title: `Quarterly DPU exceeded goal — ${oeeSummary.quarterly_dpu} vs ${goals.quarterly_dpu_goal} target`, detail: "Review defect breakdown in Work Orders." });
   }
 
-  // Stale issues — warning
   const staleIssues = issues.filter(i => {
     if (i.status === "solved") return false;
     const days = Math.floor((new Date() - new Date(i.created_at + "Z")) / (1000 * 60 * 60 * 24));
@@ -161,11 +155,13 @@ export default function SupervisorDashboard() {
   const [alerts, setAlerts]                   = useState([]);
   const [dismissedAlerts, setDismissedAlerts] = useState(new Set());
 
-  const knownIssueIds      = useRef(null);
-  const knownIssueSnapshots = useRef(null); // Map<issueId, { update_count, status }>
-  const knownWorkOrderIds  = useRef(null);
-  // Track previous alert titles so we only reset dismissed state when alerts actually change
-  const prevAlertTitles    = useRef("");
+  const knownIssueIds       = useRef(null);
+  const knownIssueSnapshots = useRef(null);
+  const knownWorkOrderIds   = useRef(null);
+  const prevAlertTitles     = useRef("");
+  // Persistent read state that survives 30s polls
+  const readIssueIds     = useRef(new Set(JSON.parse(sessionStorage.getItem("readIssueIds") || "[]")));
+  const readWorkOrderIds = useRef(new Set(JSON.parse(sessionStorage.getItem("readWorkOrderIds") || "[]")));
 
   useEffect(() => {
     if (!authed) return;
@@ -179,7 +175,6 @@ export default function SupervisorDashboard() {
     const computed = computeAlerts(oeeSummary, issues);
     const newTitles = computed.map(a => a.title).join("|");
 
-    // Only reset dismissed alerts if the alert content actually changed
     if (newTitles !== prevAlertTitles.current) {
       prevAlertTitles.current = newTitles;
       setDismissedAlerts(new Set());
@@ -222,7 +217,6 @@ export default function SupervisorDashboard() {
     const isFirstLoad = knownIssueIds.current === null;
 
     if (!isFirstLoad && Notification.permission === "granted") {
-      // New issues
       const newIssues = data.filter(i => !knownIssueIds.current.has(i.id));
       newIssues.forEach(issue => {
         const notif = new Notification("New Issue Submitted", {
@@ -232,24 +226,19 @@ export default function SupervisorDashboard() {
         notif.onclick = () => { window.focus(); notif.close(); };
       });
 
-      // Updates / status changes on issues that already existed
       data.forEach(issue => {
         const prevSnap = knownIssueSnapshots.current?.get(issue.id);
-        if (!prevSnap) return; // brand-new issue, already handled above
-
+        if (!prevSnap) return;
         const gotNewUpdate  = (issue.update_count ?? 0) > (prevSnap.update_count ?? 0);
         const statusChanged = issue.status !== prevSnap.status;
         if (!gotNewUpdate && !statusChanged) return;
-
         const justSolved = statusChanged && issue.status === "solved";
         const title = justSolved ? "Issue Marked Solved" : "Issue Updated";
         const body  = justSolved
           ? `${issue.foreman_name} — ${titleCase(issue.category)} marked solved${issue.solved_by ? ` by ${issue.solved_by}` : ""}`
           : `${issue.foreman_name} — ${titleCase(issue.category)}: new update logged`;
-
         const notif = new Notification(title, {
-          body,
-          icon: "/favicon.svg", badge: "/favicon.svg",
+          body, icon: "/favicon.svg", badge: "/favicon.svg",
           tag: `issue-update-${issue.id}-${issue.update_count}-${issue.status}`,
         });
         notif.onclick = () => { window.focus(); notif.close(); };
@@ -261,7 +250,11 @@ export default function SupervisorDashboard() {
       data.map(i => [i.id, { update_count: i.update_count ?? 0, status: i.status }])
     );
 
-    setIssues(data);
+    // On first load treat all existing issues as read; after that use persistent ref
+    setIssues(data.map(i => ({
+      ...i,
+      is_read: isFirstLoad ? true : (readIssueIds.current.has(i.id) ? true : i.is_read),
+    })));
     setSummary(sum);
     setCheckedIds(new Set());
     setLoading(false);
@@ -282,7 +275,7 @@ export default function SupervisorDashboard() {
       const data = await getWorkOrders();
       const isFirstLoad = knownWorkOrderIds.current === null;
 
-      if (!silent && !isFirstLoad && knownWorkOrderIds.current.size > 0 && Notification.permission === "granted") {
+      if (!isFirstLoad && knownWorkOrderIds.current.size > 0 && Notification.permission === "granted") {
         const newWOs = data.filter(wo => !knownWorkOrderIds.current.has(wo.id));
         newWOs.forEach(wo => {
           const notif = new Notification("New Defect Report Submitted", {
@@ -295,18 +288,11 @@ export default function SupervisorDashboard() {
 
       knownWorkOrderIds.current = new Set(data.map(wo => wo.id));
 
-      if (isFirstLoad) {
-        // Nothing local to preserve yet — trust the backend's real is_read.
-        setWorkOrders(data);
-      } else {
-        setWorkOrders(prev => {
-          const localReadIds = new Set(prev.filter(wo => wo.is_read).map(wo => wo.id));
-          return data.map(wo => ({
-            ...wo,
-            is_read: localReadIds.has(wo.id) ? true : wo.is_read,
-          }));
-        });
-      }
+      // On first load treat all existing WOs as read; after that use persistent ref
+      setWorkOrders(data.map(wo => ({
+        ...wo,
+        is_read: isFirstLoad ? true : (readWorkOrderIds.current.has(wo.id) ? true : wo.is_read),
+      })));
 
     } catch (err) {
       console.error("Work orders error:", err);
@@ -444,6 +430,13 @@ export default function SupervisorDashboard() {
     setToDelete(null); setDeleteMsg(true);
     setTimeout(() => setDeleteMsg(false), 3000);
     load();
+  }
+
+  async function markRead(issueId) {
+    await markIssueRead(issueId);
+    readIssueIds.current.add(issueId);
+    sessionStorage.setItem("readIssueIds", JSON.stringify([...readIssueIds.current]));
+    setIssues(prev => prev.map(i => i.id === issueId ? { ...i, is_read: true } : i));
   }
 
   const grouped = activeIssues.reduce((acc, issue) => {
@@ -678,10 +671,10 @@ export default function SupervisorDashboard() {
                                 <td style={tdStyle}>
                                   <div style={{ display: "flex", gap: 5, alignItems: "center", flexWrap: "wrap" }}>
                                     {!issue.is_read && (
-                                      <button onClick={async () => { await markIssueRead(issue.id); load(); }} style={{ padding: "3px 8px", fontSize: 11, border: "1px solid #D4A017", background: "#FAEEDA", color: "#854F0B", borderRadius: 6, cursor: "pointer", fontWeight: 600 }}>Mark Read</button>
+                                      <button onClick={() => markRead(issue.id)} style={{ padding: "3px 8px", fontSize: 11, border: "1px solid #D4A017", background: "#FAEEDA", color: "#854F0B", borderRadius: 6, cursor: "pointer", fontWeight: 600 }}>Mark Read</button>
                                     )}
-                                    <button onClick={async () => { setUpdating(issue); setEditing(null); setToDelete(null); setMassAdding(false); if (!issue.is_read) { await markIssueRead(issue.id); load(); } }} style={{ ...btnBase, border: "1px solid #1D9E75", background: "#E1F5EE", color: "#0F6E56", fontWeight: 500 }}>Update</button>
-                                    <button onClick={async () => { setEditing(issue); setUpdating(null); setToDelete(null); setMassAdding(false); if (!issue.is_read) { await markIssueRead(issue.id); load(); } }} style={{ ...btnBase, border: "1px solid #378ADD", background: "#E6F1FB", color: "#0C447C", fontWeight: 500 }}>Edit</button>
+                                    <button onClick={async () => { setUpdating(issue); setEditing(null); setToDelete(null); setMassAdding(false); if (!issue.is_read) await markRead(issue.id); }} style={{ ...btnBase, border: "1px solid #1D9E75", background: "#E1F5EE", color: "#0F6E56", fontWeight: 500 }}>Update</button>
+                                    <button onClick={async () => { setEditing(issue); setUpdating(null); setToDelete(null); setMassAdding(false); if (!issue.is_read) await markRead(issue.id); }} style={{ ...btnBase, border: "1px solid #378ADD", background: "#E6F1FB", color: "#0C447C", fontWeight: 500 }}>Edit</button>
                                     <button onClick={() => confirmDelete([issue.id])} style={{ ...btnBase, border: "1px solid #E24B4A", background: "#FCEBEB", color: "#A32D2D" }}>Delete</button>
                                   </div>
                                 </td>
@@ -818,6 +811,8 @@ export default function SupervisorDashboard() {
                     unreadIds={new Set(workOrders.filter(wo => !wo.is_read).map(wo => wo.id))}
                     onMarkRead={async (id) => {
                       await markWorkOrderRead(id);
+                      readWorkOrderIds.current.add(id);
+                      sessionStorage.setItem("readWorkOrderIds", JSON.stringify([...readWorkOrderIds.current]));
                       setWorkOrders(prev => prev.map(wo => wo.id === id ? { ...wo, is_read: true } : wo));
                     }}
                   />
