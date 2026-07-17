@@ -99,6 +99,7 @@ export default function WorkOrderPanel({ onSaved, unreadIds = new Set(), onMarkR
   const [defectSaving, setDefectSaving]           = useState(false);
   const [confirmDeleteYear, setConfirmDeleteYear] = useState(false);
   const [deletingYear, setDeletingYear]           = useState(false);
+  const [markingWeekRead, setMarkingWeekRead]     = useState(null);
 
   // Ref-based locks — these update instantly (no waiting for a re-render),
   // unlike the `saving`/`defectSaving` state flags, which only block the *next*
@@ -232,12 +233,24 @@ export default function WorkOrderPanel({ onSaved, unreadIds = new Set(), onMarkR
   function openModal() { setWoRows([emptyWORow(nextId++)]); setWeekStart(getWeekStart()); setError(null); setShowModal(true); }
   function closeModal() { setShowModal(false); setWoRows([emptyWORow(nextId++)]); setError(null); }
 
-  async function toggleWeek(week, wos) {
-    const isOpening = !expandedWeeks[week];
+  function toggleWeek(week) {
+    // Expanding a week no longer auto-marks its work orders as read.
+    // Read state now only changes via the explicit "Mark Read" button in
+    // the week header — so opening a week to glance at it (or to grab a
+    // screenshot) can't silently clear its "NEW" badge before you've
+    // actually acknowledged it.
     setExpanded(prev => ({ ...prev, [week]: !prev[week] }));
-    if (isOpening && onMarkRead) {
-      const unread = wos.filter(wo => unreadIds.has(wo.id));
+  }
+
+  async function markWeekRead(week, wos) {
+    if (!onMarkRead) return;
+    const unread = wos.filter(wo => unreadIds.has(wo.id));
+    if (unread.length === 0) return;
+    setMarkingWeekRead(week);
+    try {
       for (const wo of unread) await onMarkRead(wo.id);
+    } finally {
+      setMarkingWeekRead(null);
     }
   }
 
@@ -837,7 +850,7 @@ export default function WorkOrderPanel({ onSaved, unreadIds = new Set(), onMarkR
             return (
               <div key={week} style={{ border: `0.5px solid ${newCount > 0 ? "#E24B4A" : "#eee"}`, borderRadius: 10, marginBottom: 8, overflow: "hidden" }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", background: newCount > 0 ? "#FFF8F8" : isLastWeek ? "#f0faf6" : "#fafafa", borderBottom: isOpen ? "0.5px solid #eee" : "none" }}>
-                  <button type="button" onClick={() => toggleWeek(week, wos)} style={{ display: "flex", alignItems: "center", gap: 12, background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", padding: 0, flex: 1, textAlign: "left" }}>
+                  <button type="button" onClick={() => toggleWeek(week)} style={{ display: "flex", alignItems: "center", gap: 12, background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", padding: 0, flex: 1, textAlign: "left" }}>
                     <span style={{ fontSize: 13, fontWeight: 500, color: "#333" }}>Week of {formatWeek(week)}</span>
                     {isLastWeek && <span style={{ fontSize: 11, background: "#E1F5EE", color: "#0F6E56", padding: "2px 8px", borderRadius: 10, fontWeight: 500 }}>Last Week</span>}
                     {newCount > 0 && <span style={{ fontSize: 9, fontWeight: 700, background: "#E24B4A", color: "#fff", padding: "1px 5px", borderRadius: 8 }}>{newCount} new</span>}
@@ -846,9 +859,23 @@ export default function WorkOrderPanel({ onSaved, unreadIds = new Set(), onMarkR
                     <span style={{ fontSize: 12, color: wos.length >= 14 ? "#1D9E75" : "#A32D2D", fontWeight: 500 }}>{wos.length} trucks</span>
                     <span style={{ fontSize: 12, color: "#888" }}>{weekDefects} defects</span>
                     <span style={{ fontSize: 13, fontWeight: 500, color: dpuColor2 }}>{dpuLabel} DPU: {weekDpu.toFixed(2)}</span>
+                    {newCount > 0 && onMarkRead && (
+                      <button
+                        onClick={() => markWeekRead(week, wos)}
+                        disabled={markingWeekRead === week}
+                        style={{
+                          padding: "3px 10px", fontSize: 11, fontWeight: 600,
+                          border: "1px solid #D4A017", background: "#FAEEDA", color: "#854F0B",
+                          borderRadius: 6, cursor: markingWeekRead === week ? "not-allowed" : "pointer",
+                          fontFamily: "inherit", opacity: markingWeekRead === week ? 0.6 : 1,
+                        }}
+                      >
+                        {markingWeekRead === week ? "Marking…" : "Mark Read"}
+                      </button>
+                    )}
                     <button onClick={() => handlePrintWeek(week, wos)} title="Print weekly defect sheet" style={{ width: 22, height: 22, border: "0.5px solid #ddd", borderRadius: 6, background: "#fff", cursor: "pointer", fontSize: 12, color: "#555", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center" }}>🖨</button>
                     <button onClick={() => setConfirmWeek(week)} style={{ width: 22, height: 22, border: "0.5px solid #ddd", borderRadius: 6, background: "#fff", cursor: "pointer", fontSize: 12, color: "#aaa", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
-                    <span onClick={() => toggleWeek(week, wos)} style={{ fontSize: 12, color: "#555", fontWeight: 500, background: "#eee", borderRadius: 4, padding: "2px 8px", cursor: "pointer" }}>{isOpen ? "▲ Hide" : "▼ Show"}</span>
+                    <span onClick={() => toggleWeek(week)} style={{ fontSize: 12, color: "#555", fontWeight: 500, background: "#eee", borderRadius: 4, padding: "2px 8px", cursor: "pointer" }}>{isOpen ? "▲ Hide" : "▼ Show"}</span>
                   </div>
                 </div>
 
@@ -870,7 +897,12 @@ export default function WorkOrderPanel({ onSaved, unreadIds = new Set(), onMarkR
                             <td style={{ padding: "6px 16px" }}>
                               {editingId === wo.id
                                 ? <input type="text" value={editValues.work_order_num ?? ""} onChange={e => setEditValues(prev => ({ ...prev, work_order_num: e.target.value.toUpperCase() }))} style={{ ...inputStyle, width: 120 }} />
-                                : wo.work_order_num}
+                                : (
+                                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                    {wo.work_order_num}
+                                    {unreadIds.has(wo.id) && <span style={{ background: "#E24B4A", color: "#fff", fontSize: 9, fontWeight: 700, padding: "1px 5px", borderRadius: 8 }}>NEW</span>}
+                                  </div>
+                                )}
                             </td>
                             <td style={{ padding: "6px 16px" }}>
                               {editingId === wo.id ? (

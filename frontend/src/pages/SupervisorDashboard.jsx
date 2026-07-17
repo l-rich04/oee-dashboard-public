@@ -32,6 +32,29 @@ function titleCase(str) {
   return str.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
 }
 
+// ─── Safe notification helper ─────────────────────────────────────────────────
+// IMPORTANT: every desktop notification MUST go through this helper.
+// `new Notification(...)` can throw (blocked by OS, permission edge cases,
+// browser quirks, etc). Previously these calls were unguarded, which meant a
+// thrown error inside load()/loadWorkOrders() would silently abort the rest
+// of the async function — including the setIssues()/setWorkOrders() calls
+// that update the "NEW" badges. That's why notifications AND the unread
+// badges were failing together. Wrapping in try/catch means a notification
+// failure can never block a state update again, and errors get logged so
+// they're actually visible instead of disappearing silently.
+function safeNotify(title, options) {
+  try {
+    if (typeof Notification === "undefined") return null;
+    if (Notification.permission !== "granted") return null;
+    const notif = new Notification(title, options);
+    notif.onclick = () => { window.focus(); notif.close(); };
+    return notif;
+  } catch (err) {
+    console.error("Notification failed to display:", title, err);
+    return null;
+  }
+}
+
 // ─── Alert banner component ───────────────────────────────────────────────────
 
 function AlertBanner({ alerts, onDismiss, onDismissAll }) {
@@ -159,7 +182,11 @@ export default function SupervisorDashboard() {
   const knownIssueSnapshots = useRef(null);
   const knownWorkOrderIds   = useRef(null);
   const prevAlertTitles     = useRef("");
-  // Persistent read state that survives 30s polls
+  // Persistent read state that survives 30s polls AND full page reloads.
+  // This is now the ONLY source of truth for "did I mark this read" — there
+  // is no more "treat everything as read on first load" special case, since
+  // that used to silently override this persisted state the moment the page
+  // loaded, hiding genuinely unread items right when you'd want to see them.
   const readIssueIds     = useRef(new Set(JSON.parse(localStorage.getItem("readIssueIds") || "[]")));
   const readWorkOrderIds = useRef(new Set(JSON.parse(localStorage.getItem("readWorkOrderIds") || "[]")));
 
@@ -185,13 +212,12 @@ export default function SupervisorDashboard() {
         if (!alreadyNotified) {
           computed.forEach((alert, i) => {
             setTimeout(() => {
-              const notif = new Notification(alert.severity === "critical" ? "Dashboard Alert" : "Dashboard Notice", {
+              safeNotify(alert.severity === "critical" ? "Dashboard Alert" : "Dashboard Notice", {
                 body: alert.title,
                 icon: "/favicon.svg",
                 badge: "/favicon.svg",
                 tag: `alert-${weekKey}-${i}`,
               });
-              notif.onclick = () => { window.focus(); notif.close(); };
             }, i * 800);
           });
           sessionStorage.setItem(weekKey, "1");
@@ -219,11 +245,10 @@ export default function SupervisorDashboard() {
     if (!isFirstLoad && Notification.permission === "granted") {
       const newIssues = data.filter(i => !knownIssueIds.current.has(i.id));
       newIssues.forEach(issue => {
-        const notif = new Notification("New Issue Submitted", {
+        safeNotify("New Issue Submitted", {
           body: `${issue.foreman_name} — ${titleCase(issue.category)}: ${issue.description}`,
           icon: "/favicon.svg", badge: "/favicon.svg", tag: `issue-${issue.id}`,
         });
-        notif.onclick = () => { window.focus(); notif.close(); };
       });
 
       data.forEach(issue => {
@@ -237,11 +262,10 @@ export default function SupervisorDashboard() {
         const body  = justSolved
           ? `${issue.foreman_name} — ${titleCase(issue.category)} marked solved${issue.solved_by ? ` by ${issue.solved_by}` : ""}`
           : `${issue.foreman_name} — ${titleCase(issue.category)}: new update logged`;
-        const notif = new Notification(title, {
+        safeNotify(title, {
           body, icon: "/favicon.svg", badge: "/favicon.svg",
           tag: `issue-update-${issue.id}-${issue.update_count}-${issue.status}`,
         });
-        notif.onclick = () => { window.focus(); notif.close(); };
       });
     }
 
@@ -250,10 +274,13 @@ export default function SupervisorDashboard() {
       data.map(i => [i.id, { update_count: i.update_count ?? 0, status: i.status }])
     );
 
-    // On first load treat all existing issues as read; after that use persistent ref
+    // Trust localStorage-tracked read state, plus whatever the backend
+    // itself says — no special-casing for "first load" anymore. An item
+    // is read if you've ever marked it read (persisted in localStorage) OR
+    // the backend already says it's read. Nothing else can mark it read.
     setIssues(data.map(i => ({
       ...i,
-      is_read: isFirstLoad ? true : (readIssueIds.current.has(i.id) ? true : i.is_read),
+      is_read: readIssueIds.current.has(i.id) ? true : i.is_read,
     })));
     setSummary(sum);
     setCheckedIds(new Set());
@@ -275,23 +302,23 @@ export default function SupervisorDashboard() {
       const data = await getWorkOrders();
       const isFirstLoad = knownWorkOrderIds.current === null;
 
-      if (!isFirstLoad && knownWorkOrderIds.current.size > 0 && Notification.permission === "granted") {
+      if (!isFirstLoad && Notification.permission === "granted") {
         const newWOs = data.filter(wo => !knownWorkOrderIds.current.has(wo.id));
         newWOs.forEach(wo => {
-          const notif = new Notification("New Defect Report Submitted", {
+          safeNotify("New Defect Report Submitted", {
             body: `Work order ${wo.work_order_num} — ${wo.truck_type} — ${wo.total_defects} defect${wo.total_defects !== 1 ? "s" : ""}`,
             icon: "/favicon.svg", badge: "/favicon.svg", tag: `wo-${wo.id}`,
           });
-          notif.onclick = () => { window.focus(); notif.close(); };
         });
       }
 
       knownWorkOrderIds.current = new Set(data.map(wo => wo.id));
 
-      // On first load treat all existing WOs as read; after that use persistent ref
+      // Same rule as issues — trust localStorage-tracked read state plus
+      // the backend, no first-load override.
       setWorkOrders(data.map(wo => ({
         ...wo,
-        is_read: isFirstLoad ? true : (readWorkOrderIds.current.has(wo.id) ? true : wo.is_read),
+        is_read: readWorkOrderIds.current.has(wo.id) ? true : wo.is_read,
       })));
 
     } catch (err) {
@@ -303,12 +330,24 @@ export default function SupervisorDashboard() {
     if (authed) { load(); loadOEE(); loadForemen(); loadWorkOrders(); }
   }, [authed, period]);
 
+  // Polling interval — shortened from 30s to 10s so genuinely new items
+  // (submitted by someone else) get picked up and notified about faster.
+  const loadRef    = useRef(null);
+  const loadWORef  = useRef(null);
+  const loadOEERef = useRef(null);
+  loadRef.current    = load;
+  loadWORef.current  = loadWorkOrders;
+  loadOEERef.current = loadOEE;
+
   useEffect(() => {
     if (!authed) return;
-    const interval = setInterval(() => { load(); loadWorkOrders(true); loadOEE(); }, 30000);
+    const interval = setInterval(() => {
+      loadRef.current().catch(err => console.error("Poll load() failed:", err));
+      loadWORef.current(true);
+      loadOEERef.current();
+    }, 10000);
     return () => clearInterval(interval);
   }, [authed]);
-
   async function handleExport(mode) {
     setExporting(true);
     try {
@@ -438,6 +477,7 @@ export default function SupervisorDashboard() {
     localStorage.setItem("readIssueIds", JSON.stringify([...readIssueIds.current]));
     setIssues(prev => prev.map(i => i.id === issueId ? { ...i, is_read: true } : i));
   }
+
 
   const grouped = activeIssues.reduce((acc, issue) => {
     if (!acc[issue.foreman_name]) acc[issue.foreman_name] = [];
