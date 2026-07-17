@@ -161,10 +161,11 @@ export default function SupervisorDashboard() {
   const [alerts, setAlerts]                   = useState([]);
   const [dismissedAlerts, setDismissedAlerts] = useState(new Set());
 
-  const knownIssueIds     = useRef(null);
-  const knownWorkOrderIds = useRef(null);
+  const knownIssueIds      = useRef(null);
+  const knownIssueSnapshots = useRef(null); // Map<issueId, { update_count, status }>
+  const knownWorkOrderIds  = useRef(null);
   // Track previous alert titles so we only reset dismissed state when alerts actually change
-  const prevAlertTitles   = useRef("");
+  const prevAlertTitles    = useRef("");
 
   useEffect(() => {
     if (!authed) return;
@@ -219,7 +220,9 @@ export default function SupervisorDashboard() {
   async function load() {
     const [data, sum] = await Promise.all([getIssues({}), getSummary(period)]);
     const isFirstLoad = knownIssueIds.current === null;
+
     if (!isFirstLoad && Notification.permission === "granted") {
+      // New issues
       const newIssues = data.filter(i => !knownIssueIds.current.has(i.id));
       newIssues.forEach(issue => {
         const notif = new Notification("New Issue Submitted", {
@@ -228,8 +231,36 @@ export default function SupervisorDashboard() {
         });
         notif.onclick = () => { window.focus(); notif.close(); };
       });
+
+      // Updates / status changes on issues that already existed
+      data.forEach(issue => {
+        const prevSnap = knownIssueSnapshots.current?.get(issue.id);
+        if (!prevSnap) return; // brand-new issue, already handled above
+
+        const gotNewUpdate  = (issue.update_count ?? 0) > (prevSnap.update_count ?? 0);
+        const statusChanged = issue.status !== prevSnap.status;
+        if (!gotNewUpdate && !statusChanged) return;
+
+        const justSolved = statusChanged && issue.status === "solved";
+        const title = justSolved ? "Issue Marked Solved" : "Issue Updated";
+        const body  = justSolved
+          ? `${issue.foreman_name} — ${titleCase(issue.category)} marked solved${issue.solved_by ? ` by ${issue.solved_by}` : ""}`
+          : `${issue.foreman_name} — ${titleCase(issue.category)}: new update logged`;
+
+        const notif = new Notification(title, {
+          body,
+          icon: "/favicon.svg", badge: "/favicon.svg",
+          tag: `issue-update-${issue.id}-${issue.update_count}-${issue.status}`,
+        });
+        notif.onclick = () => { window.focus(); notif.close(); };
+      });
     }
+
     knownIssueIds.current = new Set(data.map(i => i.id));
+    knownIssueSnapshots.current = new Map(
+      data.map(i => [i.id, { update_count: i.update_count ?? 0, status: i.status }])
+    );
+
     setIssues(data);
     setSummary(sum);
     setCheckedIds(new Set());
@@ -264,13 +295,18 @@ export default function SupervisorDashboard() {
 
       knownWorkOrderIds.current = new Set(data.map(wo => wo.id));
 
-      setWorkOrders(prev => {
-        const localReadIds = new Set(prev.filter(wo => wo.is_read).map(wo => wo.id));
-        return data.map(wo => ({
-          ...wo,
-          is_read: isFirstLoad ? true : (localReadIds.has(wo.id) ? true : wo.is_read),
-        }));
-      });
+      if (isFirstLoad) {
+        // Nothing local to preserve yet — trust the backend's real is_read.
+        setWorkOrders(data);
+      } else {
+        setWorkOrders(prev => {
+          const localReadIds = new Set(prev.filter(wo => wo.is_read).map(wo => wo.id));
+          return data.map(wo => ({
+            ...wo,
+            is_read: localReadIds.has(wo.id) ? true : wo.is_read,
+          }));
+        });
+      }
 
     } catch (err) {
       console.error("Work orders error:", err);
@@ -780,7 +816,8 @@ export default function SupervisorDashboard() {
                   <WorkOrderPanel
                     onSaved={() => { loadOEE(); loadWorkOrders(true); }}
                     unreadIds={new Set(workOrders.filter(wo => !wo.is_read).map(wo => wo.id))}
-                    onMarkRead={(id) => {
+                    onMarkRead={async (id) => {
+                      await markWorkOrderRead(id);
                       setWorkOrders(prev => prev.map(wo => wo.id === id ? { ...wo, is_read: true } : wo));
                     }}
                   />
