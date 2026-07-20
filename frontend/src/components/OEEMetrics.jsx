@@ -7,7 +7,9 @@ import { getGoalHistory } from "../api/issues";
 
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 
-function MetricCard({ label, value, sub, color, prevLabel, prevValue }) {
+
+
+function MetricCard({ label, value, sub, color, prevLabel, prevValue, goal }) {
   return (
     <div style={{
       background: "#fafafa", borderRadius: 8,
@@ -24,6 +26,9 @@ function MetricCard({ label, value, sub, color, prevLabel, prevValue }) {
         </div>
       ) : (
         sub && <p style={{ fontSize: 11, color: "#aaa", margin: 0 }}>{sub}</p>
+      )}
+      {goal && (
+        <p style={{ fontSize: 11, color: "#aaa", margin: "4px 0 0" }}>{goal}</p>
       )}
     </div>
   );
@@ -555,10 +560,10 @@ export default function OEEMetrics({ summary }) {
       <p style={{ fontSize: 11, color: "#aaa", margin: "0 0 14px" }}>{periodData.label}</p>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 10 }}>
-        <MetricCard label="Overall Efficiency"  value={`${periodData.oeeArrow ?? ""}${periodData.oee}%`}          sub={period === "week" ? "Last Week" : "Period AVG"} color={oeeColor} prevLabel={periodData.prevLabel} prevValue={periodData.oeePrev != null ? `${periodData.oeePrev}%` : null} />
-        <MetricCard label="Availability" value={`${periodData.availArrow ?? ""}${periodData.availability}%`} sub="Downtime / Total Labor Hours"                   color={availColor} prevLabel={periodData.prevLabel} prevValue={periodData.availPrev != null ? `${periodData.availPrev}%` : null} />
-        <MetricCard label="Performance"  value={`${periodData.perfArrow ?? ""}${periodData.performance}%`}  sub="Actual vs Target"                               color={perfColor} prevLabel={periodData.prevLabel} prevValue={periodData.perfPrev != null ? `${periodData.perfPrev}%` : null} />
-        <MetricCard label="Quality"      value={`${periodData.qualArrow ?? ""}${periodData.quality}%`}      sub="Goal / Actual DPU"                              color={qualColor} prevLabel={periodData.prevLabel} prevValue={periodData.qualPrev != null ? `${periodData.qualPrev}%` : null} />
+        <MetricCard label="Overall Efficiency"  value={`${periodData.oeeArrow ?? ""}${periodData.oee}%`}          sub={period === "week" ? "Last Week" : "Period AVG"} color={oeeColor} prevLabel={periodData.prevLabel} prevValue={periodData.oeePrev != null ? `${periodData.oeePrev}%` : null} goal={period === "ytd" ? `Goal: >=${goals.alert_oee_min ?? 60}%` : undefined} />
+        <MetricCard label="Availability" value={`${periodData.availArrow ?? ""}${periodData.availability}%`} sub="Downtime / Total Labor Hours"                   color={availColor} prevLabel={periodData.prevLabel} prevValue={periodData.availPrev != null ? `${periodData.availPrev}%` : null} goal={period === "ytd" ? `Goal: >=${goals.alert_availability_min ?? 50}%` : undefined} />
+        <MetricCard label="Performance"  value={`${periodData.perfArrow ?? ""}${periodData.performance}%`}  sub="Actual vs Target"                               color={perfColor} prevLabel={periodData.prevLabel} prevValue={periodData.perfPrev != null ? `${periodData.perfPrev}%` : null} goal={period === "ytd" ? `Goal: >=${goals.alert_performance_min ?? 50}%` : undefined} />
+        <MetricCard label="Quality"      value={`${periodData.qualArrow ?? ""}${periodData.quality}%`}      sub="Goal / Actual DPU"                              color={qualColor} prevLabel={periodData.prevLabel} prevValue={periodData.qualPrev != null ? `${periodData.qualPrev}%` : null} goal={period === "ytd" ? `Goal: >=${goals.alert_quality_min ?? 50}%` : undefined} />
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 24 }}>
@@ -825,3 +830,4 @@ export default function OEEMetrics({ summary }) {
     </div>
   );
 }
+
