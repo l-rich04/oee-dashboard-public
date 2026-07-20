@@ -8,7 +8,7 @@ A manufacturing OEE (Overall Equipment Effectiveness) dashboard built as an inte
 
 - **Foreman issue tickets** — foremen submit part and process issues from any browser, no login required
 - **Supervisor dashboard** — view and manage all issues grouped by foreman, with live "new" badges and desktop notifications
-- **Morning huddle mode** — structured 3-phase walkthrough of last week's numbers, open issues, and new business
+- **Morning huddle mode** — structured 3-phase walkthrough of last week's numbers, open issues, and new issues
 - **OEE metrics** — Availability, Performance, Quality, and Overall OEE calculated yearly with week/month/quarter/year period filters
 - **Work order tracking** — log trucks and defects per week, track DPU (Defects Per Unit) trends over time with Pareto analysis
 - **Defect breakdown** — log individual defect types per work order with quantity support
