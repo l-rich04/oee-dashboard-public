@@ -1,11 +1,11 @@
 import { useState, useEffect } from "react";
-import { getIssueCategories, createIssueCategory, deleteIssueCategory } from "../api/issues";
+import { getIssueCategories, createIssueCategory, deleteIssueCategory, updateIssueCategory } from "../api/issues";
 
 function titleCase(str) {
   return str.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
 }
 
-function CategoryColumn({ title, issueType, categories, onAdd, onDelete, adding }) {
+function CategoryColumn({ title, issueType, categories, onAdd, onDelete, adding, editingId, editName, editSaving, editError, onStartEdit, onEditNameChange, onSaveEdit, onCancelEdit }) {
   const [newName, setNewName] = useState("");
 
   async function handleAdd() {
@@ -22,17 +22,51 @@ function CategoryColumn({ title, issueType, categories, onAdd, onDelete, adding 
           <span style={{ fontSize: 12, color: "#aaa", fontStyle: "italic" }}>No categories yet</span>
         ) : (
           categories.map(c => (
-            <span key={c.id} style={{
-              display: "flex", alignItems: "center", gap: 6,
-              fontSize: 12, background: "#f0f0f0", color: "#333",
-              padding: "4px 8px 4px 10px", borderRadius: 8,
-            }}>
-              {titleCase(c.name)}
-              <button onClick={() => onDelete(c.id)} style={{
-                background: "none", border: "none", cursor: "pointer",
-                color: "#A32D2D", fontSize: 13, lineHeight: 1, padding: 0,
-              }}>✕</button>
-            </span>
+            editingId === c.id ? (
+              <span key={c.id} style={{
+                display: "flex", alignItems: "center", gap: 4,
+                fontSize: 12, background: "#fff", padding: "2px 4px",
+                borderRadius: 8, border: "1px solid #378ADD",
+              }}>
+                <input
+                  type="text"
+                  value={editName}
+                  onChange={e => onEditNameChange(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter") onSaveEdit(c.id); if (e.key === "Escape") onCancelEdit(); }}
+                  autoFocus
+                  style={{
+                    width: 110, padding: "3px 6px", fontSize: 12,
+                    border: "none", outline: "none", fontFamily: "inherit",
+                  }}
+                />
+                <button onClick={() => onSaveEdit(c.id)} disabled={editSaving || !editName.trim()} style={{
+                  background: "none", border: "none", cursor: "pointer",
+                  color: "#1D9E75", fontSize: 13, lineHeight: 1, padding: "0 2px", fontWeight: 700,
+                }}>✓</button>
+                <button onClick={onCancelEdit} style={{
+                  background: "none", border: "none", cursor: "pointer",
+                  color: "#888", fontSize: 13, lineHeight: 1, padding: "0 2px",
+                }}>✕</button>
+              </span>
+            ) : (
+              <span key={c.id} style={{
+                display: "flex", alignItems: "center", gap: 6,
+                fontSize: 12, background: "#f0f0f0", color: "#333",
+                padding: "4px 8px 4px 10px", borderRadius: 8,
+              }}>
+                <span
+                  onClick={() => onStartEdit(c)}
+                  title="Click to rename"
+                  style={{ cursor: "pointer" }}
+                >
+                  {titleCase(c.name)}
+                </span>
+                <button onClick={() => onDelete(c.id)} style={{
+                  background: "none", border: "none", cursor: "pointer",
+                  color: "#A32D2D", fontSize: 13, lineHeight: 1, padding: 0,
+                }}>✕</button>
+              </span>
+            )
           ))
         )}
       </div>
@@ -64,11 +98,15 @@ function CategoryColumn({ title, issueType, categories, onAdd, onDelete, adding 
 }
 
 export default function IssueCategoryManagePanel({ onChanged }) {
-  const [showModal, setShowModal] = useState(false);
-  const [categories, setCategories] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [adding, setAdding] = useState(false);
-  const [error, setError] = useState(null);
+  const [showModal, setShowModal]     = useState(false);
+  const [categories, setCategories]   = useState([]);
+  const [loading, setLoading]         = useState(false);
+  const [adding, setAdding]           = useState(false);
+  const [error, setError]             = useState(null);
+  const [editingId, setEditingId]     = useState(null);
+  const [editName, setEditName]       = useState("");
+  const [editSaving, setEditSaving]   = useState(false);
+  const [editError, setEditError]     = useState(null);
 
   async function load() {
     setLoading(true);
@@ -109,6 +147,38 @@ export default function IssueCategoryManagePanel({ onChanged }) {
     }
   }
 
+  function startEdit(c) {
+    setEditingId(c.id);
+    setEditName(titleCase(c.name));
+    setEditError(null);
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setEditName("");
+    setEditError(null);
+  }
+
+  async function saveEdit(id) {
+    const name = editName.trim();
+    if (!name) return;
+    setEditSaving(true);
+    setEditError(null);
+    try {
+      // Renaming here also updates every existing issue that used the old
+      // category name, so past records show the new name too.
+      await updateIssueCategory(id, name);
+      setEditingId(null);
+      setEditName("");
+      await load();
+      if (onChanged) onChanged();
+    } catch (err) {
+      setEditError(err.message || "Failed to rename category.");
+    } finally {
+      setEditSaving(false);
+    }
+  }
+
   const partCategories    = categories.filter(c => c.issue_type === "part");
   const processCategories = categories.filter(c => c.issue_type === "process");
 
@@ -137,6 +207,7 @@ export default function IssueCategoryManagePanel({ onChanged }) {
             </div>
             <p style={{ fontSize: 12, color: "#888", margin: "0 0 18px" }}>
               These are the categories foremen can pick from when submitting a Part or Process issue.
+              Click a category's name to rename it.
             </p>
 
             {loading ? (
@@ -150,6 +221,14 @@ export default function IssueCategoryManagePanel({ onChanged }) {
                   onAdd={handleAdd}
                   onDelete={handleDelete}
                   adding={adding}
+                  editingId={editingId}
+                  editName={editName}
+                  editSaving={editSaving}
+                  editError={editError}
+                  onStartEdit={startEdit}
+                  onEditNameChange={setEditName}
+                  onSaveEdit={saveEdit}
+                  onCancelEdit={cancelEdit}
                 />
                 <CategoryColumn
                   title="Process Issue Categories"
@@ -158,11 +237,20 @@ export default function IssueCategoryManagePanel({ onChanged }) {
                   onAdd={handleAdd}
                   onDelete={handleDelete}
                   adding={adding}
+                  editingId={editingId}
+                  editName={editName}
+                  editSaving={editSaving}
+                  editError={editError}
+                  onStartEdit={startEdit}
+                  onEditNameChange={setEditName}
+                  onSaveEdit={saveEdit}
+                  onCancelEdit={cancelEdit}
                 />
               </div>
             )}
 
             {error && <p style={{ color: "#A32D2D", fontSize: 12, margin: "12px 0 0" }}>{error}</p>}
+            {editError && <p style={{ color: "#A32D2D", fontSize: 12, margin: "8px 0 0" }}>{editError}</p>}
 
             <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 20 }}>
               <button onClick={() => setShowModal(false)} style={{

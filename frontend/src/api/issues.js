@@ -379,3 +379,54 @@ export async function deleteIssueCategory(id) {
   const res = await fetch(`${BASE}/issue-categories/${id}`, { method: "DELETE" });
   if (!res.ok) throw new Error(await res.text());
 }
+
+
+export async function updateForeman(id, name) {
+  const res = await fetch(`${BASE}/foremen/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function updateSupervisor(id, name) {
+  const res = await fetch(`${BASE}/supervisors/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function updateTruckType(id, name) {
+  const res = await fetch(`${BASE}/truck-types/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function updateDefectType(id, name) {
+  const res = await fetch(`${BASE}/defect-types/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function updateIssueCategory(id, name) {
+  const res = await fetch(`${BASE}/issue-categories/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}

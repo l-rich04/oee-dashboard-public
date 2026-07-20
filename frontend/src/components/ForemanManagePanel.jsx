@@ -1,12 +1,16 @@
 import { useState, useEffect } from "react";
-import { getForemen, createForeman, deleteForeman } from "../api/issues";
+import { getForemen, createForeman, deleteForeman, updateForeman } from "../api/issues";
 
 export default function ForemanManagePanel({ onChanged }) {
-  const [foremen, setForemen] = useState([]);
-  const [open, setOpen]       = useState(false);
-  const [newName, setNewName] = useState("");
-  const [error, setError]     = useState(null);
-  const [saving, setSaving]   = useState(false);
+  const [foremen, setForemen]     = useState([]);
+  const [open, setOpen]           = useState(false);
+  const [newName, setNewName]     = useState("");
+  const [error, setError]         = useState(null);
+  const [saving, setSaving]       = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [editName, setEditName]   = useState("");
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState(null);
 
   async function load() {
     const data = await getForemen();
@@ -36,6 +40,38 @@ export default function ForemanManagePanel({ onChanged }) {
     await deleteForeman(id);
     load();
     if (onChanged) onChanged();
+  }
+
+  function startEdit(f) {
+    setEditingId(f.id);
+    setEditName(f.name);
+    setEditError(null);
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setEditName("");
+    setEditError(null);
+  }
+
+  async function saveEdit(id) {
+    const name = editName.trim();
+    if (!name) return;
+    setEditSaving(true);
+    setEditError(null);
+    try {
+      // Renaming here also updates every existing issue's foreman_name to
+      // match, so past records show the new name instead of the old one.
+      await updateForeman(id, name);
+      setEditingId(null);
+      setEditName("");
+      load();
+      if (onChanged) onChanged();
+    } catch (err) {
+      setEditError("That name already exists or is invalid.");
+    } finally {
+      setEditSaving(false);
+    }
   }
 
   return (
@@ -100,21 +136,62 @@ export default function ForemanManagePanel({ onChanged }) {
                 <div key={f.id} style={{
                   display: "flex", alignItems: "center", justifyContent: "space-between",
                   padding: "8px 14px", borderBottom: "0.5px solid #f0f0f0", fontSize: 13,
+                  gap: 8,
                 }}>
-                  <span>{f.name}</span>
-                  <button onClick={() => handleDelete(f.id)} style={{
-                    padding: "3px 8px", fontSize: 11,
-                    border: "1px solid #E24B4A", background: "#FCEBEB",
-                    color: "#A32D2D", borderRadius: 6, cursor: "pointer",
-                  }}>
-                    Delete
-                  </button>
+                  {editingId === f.id ? (
+                    <>
+                      <input
+                        type="text"
+                        value={editName}
+                        onChange={e => setEditName(e.target.value)}
+                        onKeyDown={e => { if (e.key === "Enter") saveEdit(f.id); if (e.key === "Escape") cancelEdit(); }}
+                        autoFocus
+                        style={{
+                          flex: 1, padding: "5px 8px", fontSize: 13,
+                          border: "1px solid #378ADD", borderRadius: 6, fontFamily: "inherit",
+                        }}
+                      />
+                      <button onClick={() => saveEdit(f.id)} disabled={editSaving || !editName.trim()} style={{
+                        padding: "3px 8px", fontSize: 11,
+                        border: "1px solid #1D9E75", background: "#E1F5EE",
+                        color: "#0F6E56", borderRadius: 6, cursor: "pointer", fontWeight: 500,
+                      }}>
+                        {editSaving ? "…" : "Save"}
+                      </button>
+                      <button onClick={cancelEdit} style={{
+                        padding: "3px 8px", fontSize: 11,
+                        border: "0.5px solid #ddd", background: "#fff",
+                        color: "#888", borderRadius: 6, cursor: "pointer",
+                      }}>
+                        Cancel
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <span style={{ flex: 1 }}>{f.name}</span>
+                      <button onClick={() => startEdit(f)} style={{
+                        padding: "3px 8px", fontSize: 11,
+                        border: "1px solid #378ADD", background: "#E6F1FB",
+                        color: "#0C447C", borderRadius: 6, cursor: "pointer",
+                      }}>
+                        Edit
+                      </button>
+                      <button onClick={() => handleDelete(f.id)} style={{
+                        padding: "3px 8px", fontSize: 11,
+                        border: "1px solid #E24B4A", background: "#FCEBEB",
+                        color: "#A32D2D", borderRadius: 6, cursor: "pointer",
+                      }}>
+                        Delete
+                      </button>
+                    </>
+                  )}
                 </div>
               ))}
               {foremen.length === 0 && (
                 <p style={{ textAlign: "center", color: "#aaa", padding: 16, fontSize: 13 }}>No foremen yet.</p>
               )}
             </div>
+            {editError && <p style={{ color: "#A32D2D", fontSize: 12, margin: "12px 0 0" }}>{editError}</p>}
           </div>
         </div>
       )}

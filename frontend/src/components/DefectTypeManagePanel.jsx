@@ -1,12 +1,16 @@
 import { useState, useEffect } from "react";
-import { getDefectTypes, createDefectType, deleteDefectType } from "../api/issues";
+import { getDefectTypes, createDefectType, deleteDefectType, updateDefectType } from "../api/issues";
 
 export default function DefectTypeManagePanel({ onChanged }) {
-  const [open, setOpen]       = useState(false);
-  const [types, setTypes]     = useState([]);
-  const [newName, setNewName] = useState("");
-  const [saving, setSaving]   = useState(false);
-  const [error, setError]     = useState(null);
+  const [open, setOpen]             = useState(false);
+  const [types, setTypes]           = useState([]);
+  const [newName, setNewName]       = useState("");
+  const [saving, setSaving]         = useState(false);
+  const [error, setError]           = useState(null);
+  const [editingId, setEditingId]   = useState(null);
+  const [editName, setEditName]     = useState("");
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError]   = useState(null);
 
   async function load() {
     const data = await getDefectTypes();
@@ -32,9 +36,46 @@ export default function DefectTypeManagePanel({ onChanged }) {
   }
 
   async function handleDelete(id) {
+    // This is a soft-delete on the backend — it hides the type from new
+    // selections here, but any existing work order defect entry that
+    // already used it keeps showing its name correctly forever, since the
+    // underlying record is never actually removed.
     await deleteDefectType(id);
     load();
     if (onChanged) onChanged();
+  }
+
+  function startEdit(t) {
+    setEditingId(t.id);
+    setEditName(t.name);
+    setEditError(null);
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setEditName("");
+    setEditError(null);
+  }
+
+  async function saveEdit(id) {
+    const name = editName.trim();
+    if (!name) return;
+    setEditSaving(true);
+    setEditError(null);
+    try {
+      // Defect types are referenced by ID (not name) from every work order
+      // defect entry, so renaming here needs no separate cascade step —
+      // every existing entry automatically shows the new name.
+      await updateDefectType(id, name);
+      setEditingId(null);
+      setEditName("");
+      load();
+      if (onChanged) onChanged();
+    } catch (err) {
+      setEditError("That name already exists or is invalid.");
+    } finally {
+      setEditSaving(false);
+    }
   }
 
   return (
@@ -103,18 +144,57 @@ export default function DefectTypeManagePanel({ onChanged }) {
                 <div key={t.id} style={{
                   display: "flex", alignItems: "center", justifyContent: "space-between",
                   padding: "8px 12px", background: "#fafafa",
-                  border: "0.5px solid #eee", borderRadius: 8,
+                  border: "0.5px solid #eee", borderRadius: 8, gap: 8,
                 }}>
-                  <span style={{ fontSize: 13, color: "#333" }}>{t.name}</span>
-                  <button onClick={() => handleDelete(t.id)} style={{
-                    padding: "3px 8px", fontSize: 11,
-                    border: "1px solid #E24B4A", background: "#FCEBEB",
-                    color: "#A32D2D", borderRadius: 6, cursor: "pointer",
-                    fontFamily: "inherit",
-                  }}>Remove</button>
+                  {editingId === t.id ? (
+                    <>
+                      <input
+                        type="text"
+                        value={editName}
+                        onChange={e => setEditName(e.target.value)}
+                        onKeyDown={e => { if (e.key === "Enter") saveEdit(t.id); if (e.key === "Escape") cancelEdit(); }}
+                        autoFocus
+                        style={{
+                          flex: 1, padding: "5px 8px", fontSize: 13,
+                          border: "1px solid #378ADD", borderRadius: 6, fontFamily: "inherit",
+                        }}
+                      />
+                      <button onClick={() => saveEdit(t.id)} disabled={editSaving || !editName.trim()} style={{
+                        padding: "3px 8px", fontSize: 11,
+                        border: "1px solid #1D9E75", background: "#E1F5EE",
+                        color: "#0F6E56", borderRadius: 6, cursor: "pointer", fontWeight: 500,
+                      }}>
+                        {editSaving ? "…" : "Save"}
+                      </button>
+                      <button onClick={cancelEdit} style={{
+                        padding: "3px 8px", fontSize: 11,
+                        border: "0.5px solid #ddd", background: "#fff",
+                        color: "#888", borderRadius: 6, cursor: "pointer",
+                      }}>
+                        Cancel
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <span style={{ fontSize: 13, color: "#333", flex: 1 }}>{t.name}</span>
+                      <button onClick={() => startEdit(t)} style={{
+                        padding: "3px 8px", fontSize: 11,
+                        border: "1px solid #378ADD", background: "#E6F1FB",
+                        color: "#0C447C", borderRadius: 6, cursor: "pointer",
+                        fontFamily: "inherit",
+                      }}>Edit</button>
+                      <button onClick={() => handleDelete(t.id)} style={{
+                        padding: "3px 8px", fontSize: 11,
+                        border: "1px solid #E24B4A", background: "#FCEBEB",
+                        color: "#A32D2D", borderRadius: 6, cursor: "pointer",
+                        fontFamily: "inherit",
+                      }}>Remove</button>
+                    </>
+                  )}
                 </div>
               ))}
             </div>
+            {editError && <p style={{ fontSize: 12, color: "#A32D2D", margin: "12px 0 0" }}>{editError}</p>}
           </div>
         </div>
       )}

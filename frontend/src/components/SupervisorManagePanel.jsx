@@ -1,12 +1,16 @@
 import { useState, useEffect } from "react";
-import { getSupervisors, createSupervisor, deleteSupervisor } from "../api/issues";
+import { getSupervisors, createSupervisor, deleteSupervisor, updateSupervisor } from "../api/issues";
 
 export default function SupervisorManagePanel({ onChanged }) {
-  const [open, setOpen]       = useState(false);
+  const [open, setOpen]               = useState(false);
   const [supervisors, setSupervisors] = useState([]);
-  const [newName, setNewName] = useState("");
-  const [saving, setSaving]   = useState(false);
-  const [error, setError]     = useState(null);
+  const [newName, setNewName]         = useState("");
+  const [saving, setSaving]           = useState(false);
+  const [error, setError]             = useState(null);
+  const [editingId, setEditingId]     = useState(null);
+  const [editName, setEditName]       = useState("");
+  const [editSaving, setEditSaving]   = useState(false);
+  const [editError, setEditError]     = useState(null);
 
   async function load() {
     const data = await getSupervisors();
@@ -35,6 +39,38 @@ export default function SupervisorManagePanel({ onChanged }) {
     await deleteSupervisor(id);
     load();
     if (onChanged) onChanged();
+  }
+
+  function startEdit(s) {
+    setEditingId(s.id);
+    setEditName(s.name);
+    setEditError(null);
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setEditName("");
+    setEditError(null);
+  }
+
+  async function saveEdit(id) {
+    const name = editName.trim();
+    if (!name) return;
+    setEditSaving(true);
+    setEditError(null);
+    try {
+      // Renaming here also updates every existing issue's solved_by and
+      // every update's made_by, so past records show the new name too.
+      await updateSupervisor(id, name);
+      setEditingId(null);
+      setEditName("");
+      load();
+      if (onChanged) onChanged();
+    } catch (err) {
+      setEditError("That name already exists or is invalid.");
+    } finally {
+      setEditSaving(false);
+    }
   }
 
   return (
@@ -103,18 +139,57 @@ export default function SupervisorManagePanel({ onChanged }) {
                 <div key={s.id} style={{
                   display: "flex", alignItems: "center", justifyContent: "space-between",
                   padding: "8px 12px", background: "#fafafa",
-                  border: "0.5px solid #eee", borderRadius: 8,
+                  border: "0.5px solid #eee", borderRadius: 8, gap: 8,
                 }}>
-                  <span style={{ fontSize: 13, color: "#333" }}>{s.name}</span>
-                  <button onClick={() => handleDelete(s.id)} style={{
-                    padding: "3px 8px", fontSize: 11,
-                    border: "1px solid #E24B4A", background: "#FCEBEB",
-                    color: "#A32D2D", borderRadius: 6, cursor: "pointer",
-                    fontFamily: "inherit",
-                  }}>Remove</button>
+                  {editingId === s.id ? (
+                    <>
+                      <input
+                        type="text"
+                        value={editName}
+                        onChange={e => setEditName(e.target.value)}
+                        onKeyDown={e => { if (e.key === "Enter") saveEdit(s.id); if (e.key === "Escape") cancelEdit(); }}
+                        autoFocus
+                        style={{
+                          flex: 1, padding: "5px 8px", fontSize: 13,
+                          border: "1px solid #378ADD", borderRadius: 6, fontFamily: "inherit",
+                        }}
+                      />
+                      <button onClick={() => saveEdit(s.id)} disabled={editSaving || !editName.trim()} style={{
+                        padding: "3px 8px", fontSize: 11,
+                        border: "1px solid #1D9E75", background: "#E1F5EE",
+                        color: "#0F6E56", borderRadius: 6, cursor: "pointer", fontWeight: 500,
+                      }}>
+                        {editSaving ? "…" : "Save"}
+                      </button>
+                      <button onClick={cancelEdit} style={{
+                        padding: "3px 8px", fontSize: 11,
+                        border: "0.5px solid #ddd", background: "#fff",
+                        color: "#888", borderRadius: 6, cursor: "pointer",
+                      }}>
+                        Cancel
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <span style={{ fontSize: 13, color: "#333", flex: 1 }}>{s.name}</span>
+                      <button onClick={() => startEdit(s)} style={{
+                        padding: "3px 8px", fontSize: 11,
+                        border: "1px solid #378ADD", background: "#E6F1FB",
+                        color: "#0C447C", borderRadius: 6, cursor: "pointer",
+                        fontFamily: "inherit",
+                      }}>Edit</button>
+                      <button onClick={() => handleDelete(s.id)} style={{
+                        padding: "3px 8px", fontSize: 11,
+                        border: "1px solid #E24B4A", background: "#FCEBEB",
+                        color: "#A32D2D", borderRadius: 6, cursor: "pointer",
+                        fontFamily: "inherit",
+                      }}>Remove</button>
+                    </>
+                  )}
                 </div>
               ))}
             </div>
+            {editError && <p style={{ fontSize: 12, color: "#A32D2D", margin: "12px 0 0" }}>{editError}</p>}
           </div>
         </div>
       )}

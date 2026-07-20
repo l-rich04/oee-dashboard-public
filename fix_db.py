@@ -1,33 +1,25 @@
-import sqlite3
+from database import engine, Base
+from database import WorkOrder, DowntimeLog, OEEGoals, ReworkHours, Foreman, Issue, GoalHistory, IndirectLabor
+from sqlalchemy import text
+from database import SessionLocal
 
-conn = sqlite3.connect("oee.db")
-cur  = conn.cursor()
+Base.metadata.create_all(bind=engine)
 
-migrations = [
-    ("oee_goals", "alert_oee_min",          "REAL DEFAULT 60.0"),
-    ("oee_goals", "alert_availability_min", "REAL DEFAULT 50.0"),
-    ("oee_goals", "alert_performance_min",  "REAL DEFAULT 50.0"),
-    ("oee_goals", "alert_quality_min",      "REAL DEFAULT 50.0"),
-    ("oee_goals", "alert_stale_days",       "INTEGER DEFAULT 14"),
-]
+db = SessionLocal()
 
-for table, col, definition in migrations:
-    try:
-        cur.execute(f"ALTER TABLE {table} ADD COLUMN {col} {definition}")
-        print(f"Added {table}.{col}")
-    except Exception as e:
-        print(f"Skipped {table}.{col}: {e}")
+try:
+    db.execute(text("ALTER TABLE issues ADD COLUMN is_read BOOLEAN DEFAULT 0"))
+    db.commit()
+    print("Added issues.is_read column.")
+except Exception as e:
+    print(f"issues.is_read column may already exist: {e}")
 
-cur.execute("""
-    CREATE TABLE IF NOT EXISTS issue_categories (
-        id         INTEGER PRIMARY KEY AUTOINCREMENT,
-        issue_type TEXT NOT NULL,
-        name       TEXT NOT NULL,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-""")
-print("issue_categories table ready")
+try:
+    db.execute(text("ALTER TABLE work_orders ADD COLUMN is_read BOOLEAN DEFAULT 0"))
+    db.commit()
+    print("Added work_orders.is_read column.")
+except Exception as e:
+    print(f"work_orders.is_read column may already exist: {e}")
 
-conn.commit()
-conn.close()
-print("Done.")
+db.close()
+print("Migration complete.")

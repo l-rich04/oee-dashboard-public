@@ -302,11 +302,11 @@ export default function OEEMetrics({ summary }) {
         return { arrow: "→ ", color: "#888" };
       }
 
-      const oeeTrend    = trendArrow(currMetrics?.oee, prevMetrics?.oee);
-      const availTrend  = trendArrow(currMetrics?.availability, prevMetrics?.availability);
-      const perfTrend   = trendArrow(currMetrics?.performance, prevMetrics?.performance);
-      const qualTrend   = trendArrow(currMetrics?.quality, prevMetrics?.quality);
-      const trucksTrend = trendArrow(currMetrics?.trucks, prevMetrics?.trucks);
+      const oeeTrend    = trendArrow(summary.oee, prevMetrics?.oee);
+      const availTrend  = trendArrow(summary.availability, prevMetrics?.availability);
+      const perfTrend   = trendArrow(summary.performance, prevMetrics?.performance);
+      const qualTrend   = trendArrow(summary.quality, prevMetrics?.quality);
+      const trucksTrend = trendArrow(summary.trucks_this_week, prevMetrics?.trucks);
 
       return {
         label:        `Last Week (${getLastWeekStart()})`,

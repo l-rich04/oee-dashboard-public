@@ -93,7 +93,6 @@ class WorkOrderOut(BaseModel):
     total_defects:   int
     week_start:      str
     created_at:      datetime
-    is_read:         bool = False
 
     model_config = {"from_attributes": True}
 
@@ -495,6 +494,33 @@ def delete_issue_category(cat_id: int, db: Session = Depends(get_db)):
     return
 
 
+@app.put("/issue-categories/{cat_id}", response_model=IssueCategoryOut)
+def update_issue_category(cat_id: int, data: dict, db: Session = Depends(get_db)):
+    cat = db.query(IssueCategory).filter(IssueCategory.id == cat_id).first()
+    if not cat:
+        raise HTTPException(status_code=404, detail="Category not found")
+    new_name = data.get("name", "").strip().lower().replace(" ", "_")
+    if not new_name:
+        raise HTTPException(status_code=400, detail="Name cannot be empty")
+    existing = db.query(IssueCategory).filter(
+        IssueCategory.name == new_name,
+        IssueCategory.issue_type == cat.issue_type,
+        IssueCategory.id != cat_id,
+    ).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="A category with that name already exists")
+    old_name = cat.name
+    cat.name = new_name
+    if old_name != new_name:
+        db.query(Issue).filter(
+            Issue.category == old_name,
+            Issue.issue_type == cat.issue_type,
+        ).update({"category": new_name})
+    db.commit()
+    db.refresh(cat)
+    return cat
+
+
 # --- Work order endpoints ---
 
 @app.post("/work-orders", response_model=WorkOrderOut, status_code=201)
@@ -701,11 +727,31 @@ def delete_truck_type(tt_id: int, db: Session = Depends(get_db)):
     return
 
 
+@app.put("/truck-types/{tt_id}")
+def update_truck_type(tt_id: int, data: dict, db: Session = Depends(get_db)):
+    tt = db.query(TruckType).filter(TruckType.id == tt_id).first()
+    if not tt:
+        raise HTTPException(status_code=404, detail="Truck type not found")
+    new_name = data.get("name", "").strip()
+    if not new_name:
+        raise HTTPException(status_code=400, detail="Name cannot be empty")
+    existing = db.query(TruckType).filter(TruckType.name == new_name, TruckType.id != tt_id).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="A truck type with that name already exists")
+    old_name = tt.name
+    tt.name = new_name
+    if old_name != new_name:
+        db.query(WorkOrder).filter(WorkOrder.truck_type == old_name).update({"truck_type": new_name})
+    db.commit()
+    db.refresh(tt)
+    return tt
+
+
 # --- Defect type endpoints ---
 
 @app.get("/defect-types")
 def get_defect_types(db: Session = Depends(get_db)):
-    return db.query(DefectType).order_by(DefectType.name).all()
+    return db.query(DefectType).filter(DefectType.active == True).order_by(DefectType.name).all()
 
 
 @app.post("/defect-types", status_code=201)
@@ -723,12 +769,34 @@ def create_defect_type(data: dict, db: Session = Depends(get_db)):
     return dt
 
 
+@app.put("/defect-types/{dt_id}")
+def update_defect_type(dt_id: int, data: dict, db: Session = Depends(get_db)):
+    dt = db.query(DefectType).filter(DefectType.id == dt_id).first()
+    if not dt:
+        raise HTTPException(status_code=404, detail="Defect type not found")
+    new_name = data.get("name", "").strip()
+    if not new_name:
+        raise HTTPException(status_code=400, detail="Name cannot be empty")
+    existing = db.query(DefectType).filter(DefectType.name == new_name, DefectType.id != dt_id).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="A defect type with that name already exists")
+    # No cascade needed here — WorkOrderDefect references defect_type_id,
+    # not the name, so renaming is automatically reflected everywhere.
+    dt.name = new_name
+    db.commit()
+    db.refresh(dt)
+    return dt
+
+
 @app.delete("/defect-types/{dt_id}", status_code=204)
 def delete_defect_type(dt_id: int, db: Session = Depends(get_db)):
     dt = db.query(DefectType).filter(DefectType.id == dt_id).first()
     if not dt:
         raise HTTPException(status_code=404, detail="Defect type not found")
-    db.delete(dt)
+    # Soft-delete: hides it from new selections, but any existing
+    # WorkOrderDefect row that references this id still resolves its name
+    # correctly forever, since the row itself is never removed.
+    dt.active = False
     db.commit()
     return
 
@@ -836,6 +904,26 @@ def delete_foreman(foreman_id: int, db: Session = Depends(get_db)):
     return
 
 
+@app.put("/foremen/{foreman_id}", response_model=ForemanOut)
+def update_foreman(foreman_id: int, data: dict, db: Session = Depends(get_db)):
+    foreman = db.query(Foreman).filter(Foreman.id == foreman_id).first()
+    if not foreman:
+        raise HTTPException(status_code=404, detail="Foreman not found")
+    new_name = data.get("name", "").strip()
+    if not new_name:
+        raise HTTPException(status_code=400, detail="Name cannot be empty")
+    existing = db.query(Foreman).filter(Foreman.name == new_name, Foreman.id != foreman_id).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="A foreman with that name already exists")
+    old_name = foreman.name
+    foreman.name = new_name
+    if old_name != new_name:
+        db.query(Issue).filter(Issue.foreman_name == old_name).update({"foreman_name": new_name})
+    db.commit()
+    db.refresh(foreman)
+    return foreman
+
+
 # --- Supervisor endpoints ---
 
 @app.get("/supervisors", response_model=list[SupervisorOut])
@@ -866,6 +954,27 @@ def delete_supervisor(supervisor_id: int, db: Session = Depends(get_db)):
     db.delete(supervisor)
     db.commit()
     return
+
+
+@app.put("/supervisors/{supervisor_id}", response_model=SupervisorOut)
+def update_supervisor(supervisor_id: int, data: dict, db: Session = Depends(get_db)):
+    supervisor = db.query(Supervisor).filter(Supervisor.id == supervisor_id).first()
+    if not supervisor:
+        raise HTTPException(status_code=404, detail="Supervisor not found")
+    new_name = data.get("name", "").strip()
+    if not new_name:
+        raise HTTPException(status_code=400, detail="Name cannot be empty")
+    existing = db.query(Supervisor).filter(Supervisor.name == new_name, Supervisor.id != supervisor_id).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="A supervisor with that name already exists")
+    old_name = supervisor.name
+    supervisor.name = new_name
+    if old_name != new_name:
+        db.query(Issue).filter(Issue.solved_by == old_name).update({"solved_by": new_name})
+        db.query(IssueUpdate).filter(IssueUpdate.made_by == old_name).update({"made_by": new_name})
+    db.commit()
+    db.refresh(supervisor)
+    return supervisor
 
 
 # --- OEE goals endpoints ---

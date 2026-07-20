@@ -27,6 +27,15 @@ class Issue(Base):
     is_read         = Column(Boolean, default=False, nullable=False)
 
 
+class DefectType(Base):
+    __tablename__ = "defect_types"
+
+    id         = Column(Integer, primary_key=True, index=True)
+    name       = Column(String, unique=True, nullable=False)
+    active     = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+
 class IssueUpdate(Base):
     __tablename__ = "issue_updates"
 
