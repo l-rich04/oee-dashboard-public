@@ -92,6 +92,7 @@ class WorkOrderOut(BaseModel):
     units_completed: int
     total_defects:   int
     week_start:      str
+    is_read:         bool = False
     created_at:      datetime
 
     model_config = {"from_attributes": True}
