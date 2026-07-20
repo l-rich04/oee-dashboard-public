@@ -93,6 +93,7 @@ class WorkOrderOut(BaseModel):
     total_defects:   int
     week_start:      str
     created_at:      datetime
+    is_read:         bool = False
 
     model_config = {"from_attributes": True}
 

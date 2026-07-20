@@ -274,14 +274,10 @@ export default function SupervisorDashboard() {
       data.map(i => [i.id, { update_count: i.update_count ?? 0, status: i.status }])
     );
 
-    // Trust localStorage-tracked read state, plus whatever the backend
-    // itself says — no special-casing for "first load" anymore. An item
-    // is read if you've ever marked it read (persisted in localStorage) OR
-    // the backend already says it's read. Nothing else can mark it read.
-    setIssues(data.map(i => ({
-      ...i,
-      is_read: readIssueIds.current.has(i.id) ? true : i.is_read,
-    })));
+    // Trust the backend's is_read directly — no localStorage override.
+    // localStorage-based overrides break when IDs get reused after a
+    // bulk delete (new record, recycled ID, stale "already read" entry).
+    setIssues(data);
     setSummary(sum);
     setCheckedIds(new Set());
     setLoading(false);
@@ -314,12 +310,10 @@ export default function SupervisorDashboard() {
 
       knownWorkOrderIds.current = new Set(data.map(wo => wo.id));
 
-      // Same rule as issues — trust localStorage-tracked read state plus
-      // the backend, no first-load override.
-      setWorkOrders(data.map(wo => ({
-        ...wo,
-        is_read: readWorkOrderIds.current.has(wo.id) ? true : wo.is_read,
-      })));
+      // Trust the backend's is_read directly — no localStorage override.
+      // localStorage-based overrides break when IDs get reused after a
+      // bulk delete (new record, recycled ID, stale "already read" entry).
+      setWorkOrders(data);
 
     } catch (err) {
       console.error("Work orders error:", err);
@@ -729,10 +723,17 @@ export default function SupervisorDashboard() {
 
                 {/* SOLVED SECTION */}
                 <div style={{ marginTop: 24 }}>
-                  <button onClick={() => setShowSolved(prev => !prev)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 16px", background: "#fafafa", border: "0.5px solid #eee", borderRadius: 8, fontSize: 13, fontWeight: 500, color: "#555", cursor: "pointer", fontFamily: "inherit", marginBottom: showSolved ? 16 : 0 }}>
-                    {showSolved ? "▲" : "▼"} View Solved
-                    <span style={{ fontSize: 11, color: "#aaa", fontWeight: 400 }}>({solvedIssues.length} issue{solvedIssues.length !== 1 ? "s" : ""})</span>
-                  </button>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <button onClick={() => setShowSolved(prev => !prev)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 16px", background: "#fafafa", border: "0.5px solid #eee", borderRadius: 8, fontSize: 13, fontWeight: 500, color: "#555", cursor: "pointer", fontFamily: "inherit" }}>
+                      {showSolved ? "▲" : "▼"} View Solved
+                      <span style={{ fontSize: 11, color: "#aaa", fontWeight: 400 }}>({solvedIssues.length} issue{solvedIssues.length !== 1 ? "s" : ""})</span>
+                    </button>
+                    {solvedIssues.length > 0 && (
+                      <button onClick={() => confirmDelete(solvedIssues.map(i => i.id))} style={{ padding: "10px 16px", background: "#FCEBEB", border: "1px solid #E24B4A", borderRadius: 8, fontSize: 13, fontWeight: 500, color: "#A32D2D", cursor: "pointer", fontFamily: "inherit" }}>
+                        Delete All Solved ({solvedIssues.length})
+                      </button>
+                    )}
+                  </div>
                   {showSolved && (
                     <div style={{ marginTop: 8 }}>
                       {sortedSolvedForemen.length === 0 && <p style={{ textAlign: "center", color: "#999", padding: 24, fontSize: 13 }}>No solved issues yet.</p>}
