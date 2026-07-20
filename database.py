@@ -67,7 +67,6 @@ class DefectType(Base):
     active     = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-
 class WorkOrderDefect(Base):
     __tablename__ = "work_order_defects"
 
