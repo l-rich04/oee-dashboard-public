@@ -1061,6 +1061,7 @@ def delete_goal_history(history_id: int, db: Session = Depends(get_db)):
 # --- OEE summary endpoint ---
 
 @app.get("/oee/summary")
+
 def get_oee_summary(db: Session = Depends(get_db)):
     today         = date.today()
     week_start    = today - timedelta(days=today.weekday())
@@ -1078,6 +1079,23 @@ def get_oee_summary(db: Session = Depends(get_db)):
     work_orders   = db.query(WorkOrder).all()
     indirect_logs = db.query(IndirectLabor).all()
 
+    # Goal-history lookup — computed once here, reused everywhere below,
+    # so quality/oee and every other goal-aware figure in this function
+    # always agree with each other and with what Morning Huddle computes
+    # locally from the same data.
+    goal_history_records = db.query(GoalHistory).order_by(GoalHistory.effective_date.asc()).all()
+
+    def get_goal_for_date(d):
+        active = None
+        for g in goal_history_records:
+            if g.effective_date <= str(d):
+                active = g
+            else:
+                break
+        return active or goals
+
+    last_week_goal = get_goal_for_date(last_week)
+
     last_week_wo  = [wo for wo in work_orders if wo.week_start == str(last_week)]
     total_trucks  = len(last_week_wo)
     total_defects = sum(wo.total_defects for wo in last_week_wo)
@@ -1087,10 +1105,10 @@ def get_oee_summary(db: Session = Depends(get_db)):
 
     if avg_dpu_last_week == 0:
         quality = 0
-    elif avg_dpu_last_week <= goals.quarterly_dpu_goal:
+    elif avg_dpu_last_week <= last_week_goal.quarterly_dpu_goal:
         quality = 100.0
     else:
-        quality = round(goals.quarterly_dpu_goal / avg_dpu_last_week * 100, 1)
+        quality = round(last_week_goal.quarterly_dpu_goal / avg_dpu_last_week * 100, 1)
 
     last_week_indirect = next((r for r in indirect_logs if r.week_start == str(last_week)), None)
     working_days       = last_week_indirect.working_days if last_week_indirect else 5
@@ -1141,19 +1159,9 @@ def get_oee_summary(db: Session = Depends(get_db)):
     last_year_defects = sum(wo.total_defects for wo in last_year_wo)
     last_year_dpu     = round(last_year_defects / last_year_trucks, 2) if last_year_trucks > 0 else 0
 
-    goal_history_records = db.query(GoalHistory).order_by(GoalHistory.effective_date.asc()).all()
-
-    def get_goal_for_date(d):
-        active = None
-        for g in goal_history_records:
-            if g.effective_date <= str(d):
-                active = g
-            else:
-                break
-        return active or goals
-
-    last_quarter_goal = get_goal_for_date(last_quarter_start)
-    last_year_goal    = get_goal_for_date(last_year_start)
+    last_quarter_goal    = get_goal_for_date(last_quarter_start)
+    last_year_goal       = get_goal_for_date(last_year_start)
+    overview_quarter_goal = get_goal_for_date(quarter_start)
 
     weekly_data = {}
     for wo in work_orders:
@@ -1193,8 +1201,6 @@ def get_oee_summary(db: Session = Depends(get_db)):
         if log.date >= str(quarter_start):
             downtime_by_machine[log.machine] = downtime_by_machine.get(log.machine, 0) + log.duration
 
-    current_quarter_goal = get_goal_for_date(quarter_start)
-
     return {
         "oee":                      oee,
         "availability":             availability,
@@ -1227,8 +1233,8 @@ def get_oee_summary(db: Session = Depends(get_db)):
             for r in indirect_logs
         ],
         "goals": {
-            "annual_dpu_goal":      current_quarter_goal.annual_dpu_goal,
-            "quarterly_dpu_goal":   current_quarter_goal.quarterly_dpu_goal,
+            "annual_dpu_goal":      overview_quarter_goal.annual_dpu_goal,
+            "quarterly_dpu_goal":   overview_quarter_goal.quarterly_dpu_goal,
             "weekly_trucks_min":    goals.weekly_trucks_min,
             "weekly_trucks_max":    goals.weekly_trucks_max,
             "alert_oee_min":          getattr(goals, "alert_oee_min",          60.0),
