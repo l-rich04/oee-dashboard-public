@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, forwardRef, useImperativeHandle } from "react";
 import { getIssueCategories, createIssueCategory, deleteIssueCategory, updateIssueCategory } from "../api/issues";
 
 function titleCase(str) {
@@ -97,7 +97,7 @@ function CategoryColumn({ title, issueType, categories, onAdd, onDelete, adding,
   );
 }
 
-export default function IssueCategoryManagePanel({ onChanged }) {
+const IssueCategoryManagePanel = forwardRef(function IssueCategoryManagePanel({ onChanged }, ref) {
   const [showModal, setShowModal]     = useState(false);
   const [categories, setCategories]   = useState([]);
   const [loading, setLoading]         = useState(false);
@@ -107,6 +107,10 @@ export default function IssueCategoryManagePanel({ onChanged }) {
   const [editName, setEditName]       = useState("");
   const [editSaving, setEditSaving]   = useState(false);
   const [editError, setEditError]     = useState(null);
+
+  useImperativeHandle(ref, () => ({
+    open: () => setShowModal(true),
+  }));
 
   async function load() {
     setLoading(true);
@@ -165,8 +169,6 @@ export default function IssueCategoryManagePanel({ onChanged }) {
     setEditSaving(true);
     setEditError(null);
     try {
-      // Renaming here also updates every existing issue that used the old
-      // category name, so past records show the new name too.
       await updateIssueCategory(id, name);
       setEditingId(null);
       setEditName("");
@@ -182,88 +184,80 @@ export default function IssueCategoryManagePanel({ onChanged }) {
   const partCategories    = categories.filter(c => c.issue_type === "part");
   const processCategories = categories.filter(c => c.issue_type === "process");
 
+  if (!showModal) return null;
+
   return (
-    <>
-      <button onClick={() => setShowModal(true)} style={{
-        padding: "8px 16px", background: "#fff", color: "#555",
-        border: "1px solid #ddd", borderRadius: 8, fontSize: 13,
-        fontWeight: 500, cursor: "pointer", fontFamily: "inherit",
+    <div onClick={e => { if (e.target === e.currentTarget) setShowModal(false); }} style={{
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)",
+      display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000,
+    }}>
+      <div style={{
+        background: "#fff", borderRadius: 12, padding: 28,
+        width: "90%", maxWidth: 560, boxShadow: "0 8px 32px rgba(0,0,0,0.12)",
       }}>
-        Manage Issues
-      </button>
-
-      {showModal && (
-        <div onClick={e => { if (e.target === e.currentTarget) setShowModal(false); }} style={{
-          position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)",
-          display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000,
-        }}>
-          <div style={{
-            background: "#fff", borderRadius: 12, padding: 28,
-            width: "90%", maxWidth: 560, boxShadow: "0 8px 32px rgba(0,0,0,0.12)",
-          }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-              <p style={{ fontSize: 15, fontWeight: 500, margin: 0 }}>Manage Issue Categories</p>
-              <button onClick={() => setShowModal(false)} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#aaa" }}>✕</button>
-            </div>
-            <p style={{ fontSize: 12, color: "#888", margin: "0 0 18px" }}>
-              These are the categories foremen can pick from when submitting a Part or Process issue.
-              Click a category's name to rename it.
-            </p>
-
-            {loading ? (
-              <p style={{ fontSize: 13, color: "#aaa", textAlign: "center", padding: "20px 0" }}>Loading…</p>
-            ) : (
-              <div style={{ display: "flex", gap: 24 }}>
-                <CategoryColumn
-                  title="Part Issue Categories"
-                  issueType="part"
-                  categories={partCategories}
-                  onAdd={handleAdd}
-                  onDelete={handleDelete}
-                  adding={adding}
-                  editingId={editingId}
-                  editName={editName}
-                  editSaving={editSaving}
-                  editError={editError}
-                  onStartEdit={startEdit}
-                  onEditNameChange={setEditName}
-                  onSaveEdit={saveEdit}
-                  onCancelEdit={cancelEdit}
-                />
-                <CategoryColumn
-                  title="Process Issue Categories"
-                  issueType="process"
-                  categories={processCategories}
-                  onAdd={handleAdd}
-                  onDelete={handleDelete}
-                  adding={adding}
-                  editingId={editingId}
-                  editName={editName}
-                  editSaving={editSaving}
-                  editError={editError}
-                  onStartEdit={startEdit}
-                  onEditNameChange={setEditName}
-                  onSaveEdit={saveEdit}
-                  onCancelEdit={cancelEdit}
-                />
-              </div>
-            )}
-
-            {error && <p style={{ color: "#A32D2D", fontSize: 12, margin: "12px 0 0" }}>{error}</p>}
-            {editError && <p style={{ color: "#A32D2D", fontSize: 12, margin: "8px 0 0" }}>{editError}</p>}
-
-            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 20 }}>
-              <button onClick={() => setShowModal(false)} style={{
-                padding: "8px 20px", background: "#1D9E75", color: "#fff",
-                border: "none", borderRadius: 8, fontSize: 13, fontWeight: 500,
-                cursor: "pointer", fontFamily: "inherit",
-              }}>
-                Done
-              </button>
-            </div>
-          </div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+          <p style={{ fontSize: 15, fontWeight: 500, margin: 0 }}>Manage Issue Categories</p>
+          <button onClick={() => setShowModal(false)} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#aaa" }}>✕</button>
         </div>
-      )}
-    </>
+        <p style={{ fontSize: 12, color: "#888", margin: "0 0 18px" }}>
+          These are the categories foremen can pick from when submitting a Part or Process issue.
+          Click a category's name to rename it.
+        </p>
+
+        {loading ? (
+          <p style={{ fontSize: 13, color: "#aaa", textAlign: "center", padding: "20px 0" }}>Loading…</p>
+        ) : (
+          <div style={{ display: "flex", gap: 24 }}>
+            <CategoryColumn
+              title="Part Issue Categories"
+              issueType="part"
+              categories={partCategories}
+              onAdd={handleAdd}
+              onDelete={handleDelete}
+              adding={adding}
+              editingId={editingId}
+              editName={editName}
+              editSaving={editSaving}
+              editError={editError}
+              onStartEdit={startEdit}
+              onEditNameChange={setEditName}
+              onSaveEdit={saveEdit}
+              onCancelEdit={cancelEdit}
+            />
+            <CategoryColumn
+              title="Process Issue Categories"
+              issueType="process"
+              categories={processCategories}
+              onAdd={handleAdd}
+              onDelete={handleDelete}
+              adding={adding}
+              editingId={editingId}
+              editName={editName}
+              editSaving={editSaving}
+              editError={editError}
+              onStartEdit={startEdit}
+              onEditNameChange={setEditName}
+              onSaveEdit={saveEdit}
+              onCancelEdit={cancelEdit}
+            />
+          </div>
+        )}
+
+        {error && <p style={{ color: "#A32D2D", fontSize: 12, margin: "12px 0 0" }}>{error}</p>}
+        {editError && <p style={{ color: "#A32D2D", fontSize: 12, margin: "8px 0 0" }}>{editError}</p>}
+
+        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 20 }}>
+          <button onClick={() => setShowModal(false)} style={{
+            padding: "8px 20px", background: "#1D9E75", color: "#fff",
+            border: "none", borderRadius: 8, fontSize: 13, fontWeight: 500,
+            cursor: "pointer", fontFamily: "inherit",
+          }}>
+            Done
+          </button>
+        </div>
+      </div>
+    </div>
   );
-}
+});
+
+export default IssueCategoryManagePanel;

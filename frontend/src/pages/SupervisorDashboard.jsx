@@ -33,15 +33,6 @@ function titleCase(str) {
 }
 
 // ─── Safe notification helper ─────────────────────────────────────────────────
-// IMPORTANT: every desktop notification MUST go through this helper.
-// `new Notification(...)` can throw (blocked by OS, permission edge cases,
-// browser quirks, etc). Previously these calls were unguarded, which meant a
-// thrown error inside load()/loadWorkOrders() would silently abort the rest
-// of the async function — including the setIssues()/setWorkOrders() calls
-// that update the "NEW" badges. That's why notifications AND the unread
-// badges were failing together. Wrapping in try/catch means a notification
-// failure can never block a state update again, and errors get logged so
-// they're actually visible instead of disappearing silently.
 function safeNotify(title, options) {
   try {
     if (typeof Notification === "undefined") return null;
@@ -177,18 +168,25 @@ export default function SupervisorDashboard() {
   const [exporting, setExporting]             = useState(false);
   const [alerts, setAlerts]                   = useState([]);
   const [dismissedAlerts, setDismissedAlerts] = useState(new Set());
+  const [settingsOpen, setSettingsOpen]       = useState(false);
 
   const knownIssueIds       = useRef(null);
   const knownIssueSnapshots = useRef(null);
   const knownWorkOrderIds   = useRef(null);
   const prevAlertTitles     = useRef("");
-  // Persistent read state that survives 30s polls AND full page reloads.
-  // This is now the ONLY source of truth for "did I mark this read" — there
-  // is no more "treat everything as read on first load" special case, since
-  // that used to silently override this persisted state the moment the page
-  // loaded, hiding genuinely unread items right when you'd want to see them.
   const readIssueIds     = useRef(new Set(JSON.parse(localStorage.getItem("readIssueIds") || "[]")));
   const readWorkOrderIds = useRef(new Set(JSON.parse(localStorage.getItem("readWorkOrderIds") || "[]")));
+
+  // Refs into the 7 settings panels — the gear menu calls .current.open()
+  // on whichever one was clicked, instead of each panel owning its own
+  // visible trigger button.
+  const foremanRef    = useRef(null);
+  const supervisorRef = useRef(null);
+  const truckTypeRef  = useRef(null);
+  const defectTypeRef = useRef(null);
+  const categoryRef   = useRef(null);
+  const passwordRef   = useRef(null);
+  const goalsRef      = useRef(null);
 
   useEffect(() => {
     if (!authed) return;
@@ -274,9 +272,6 @@ export default function SupervisorDashboard() {
       data.map(i => [i.id, { update_count: i.update_count ?? 0, status: i.status }])
     );
 
-    // Trust the backend's is_read directly — no localStorage override.
-    // localStorage-based overrides break when IDs get reused after a
-    // bulk delete (new record, recycled ID, stale "already read" entry).
     setIssues(data);
     setSummary(sum);
     setCheckedIds(new Set());
@@ -309,10 +304,6 @@ export default function SupervisorDashboard() {
       }
 
       knownWorkOrderIds.current = new Set(data.map(wo => wo.id));
-
-      // Trust the backend's is_read directly — no localStorage override.
-      // localStorage-based overrides break when IDs get reused after a
-      // bulk delete (new record, recycled ID, stale "already read" entry).
       setWorkOrders(data);
 
     } catch (err) {
@@ -324,8 +315,6 @@ export default function SupervisorDashboard() {
     if (authed) { load(); loadOEE(); loadForemen(); loadWorkOrders(); }
   }, [authed, period]);
 
-  // Polling interval — shortened from 30s to 10s so genuinely new items
-  // (submitted by someone else) get picked up and notified about faster.
   const loadRef    = useRef(null);
   const loadWORef  = useRef(null);
   const loadOEERef = useRef(null);
@@ -342,6 +331,7 @@ export default function SupervisorDashboard() {
     }, 10000);
     return () => clearInterval(interval);
   }, [authed]);
+
   async function handleExport(mode) {
     setExporting(true);
     try {
@@ -472,7 +462,6 @@ export default function SupervisorDashboard() {
     setIssues(prev => prev.map(i => i.id === issueId ? { ...i, is_read: true } : i));
   }
 
-
   const grouped = activeIssues.reduce((acc, issue) => {
     if (!acc[issue.foreman_name]) acc[issue.foreman_name] = [];
     acc[issue.foreman_name].push(issue); return acc;
@@ -507,6 +496,15 @@ export default function SupervisorDashboard() {
           <p style={{ fontSize: 14, color: "#aaa", marginTop: 80, textAlign: "center" }}>Loading dashboard...</p>
         ) : (
           <>
+            {/* Settings panels — mounted once, invisible until opened via the gear menu below */}
+            <ForemanManagePanel ref={foremanRef} onChanged={loadForemen} />
+            <SupervisorManagePanel ref={supervisorRef} onChanged={() => {}} />
+            <TruckTypeManagePanel ref={truckTypeRef} onChanged={() => {}} />
+            <DefectTypeManagePanel ref={defectTypeRef} onChanged={() => {}} />
+            <IssueCategoryManagePanel ref={categoryRef} onChanged={() => {}} />
+            <PasswordChangePanel ref={passwordRef} />
+            <OEEGoalsPanel ref={goalsRef} onSaved={loadOEE} />
+
             {/* HEADER */}
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
               <h1 style={{ fontSize: 22, fontWeight: 500, margin: 0 }}>Supervisor Dashboard</h1>
@@ -528,7 +526,53 @@ export default function SupervisorDashboard() {
                     Notifications on
                   </span>
                 )}
-                <PasswordChangePanel />
+
+                {/* Settings gear — consolidates every admin/config action into one place */}
+                <div style={{ position: "relative" }}>
+                  <button
+                    onClick={() => setSettingsOpen(prev => !prev)}
+                    title="Dashboard settings"
+                    style={{
+                      width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center",
+                      border: "0.5px solid #ddd", borderRadius: 8, background: settingsOpen ? "#f5f5f5" : "#fff",
+                      cursor: "pointer", fontSize: 16, color: "#555",
+                    }}
+                  >⚙</button>
+
+                  {settingsOpen && (
+                    <>
+                      <div onClick={() => setSettingsOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 999 }} />
+                      <div style={{
+                        position: "absolute", top: "calc(100% + 6px)", right: 0,
+                        background: "#fff", border: "0.5px solid #ddd", borderRadius: 10,
+                        boxShadow: "0 8px 24px rgba(0,0,0,0.12)", width: 220, zIndex: 1000,
+                        overflow: "hidden",
+                      }}>
+                        {[
+                          { label: "Edit Goals",               onClick: () => goalsRef.current?.open() },
+                          { label: "Manage Foremen",           onClick: () => foremanRef.current?.open() },
+                          { label: "Manage Supervisors",       onClick: () => supervisorRef.current?.open() },
+                          { label: "Manage Truck Types",       onClick: () => truckTypeRef.current?.open() },
+                          { label: "Manage Defect Types",      onClick: () => defectTypeRef.current?.open() },
+                          { label: "Manage Issue Categories",  onClick: () => categoryRef.current?.open() },
+                          { label: "Change Password",          onClick: () => passwordRef.current?.open() },
+                        ].map((item, i, arr) => (
+                          <button
+                            key={item.label}
+                            onClick={() => { item.onClick(); setSettingsOpen(false); }}
+                            style={{
+                              display: "block", width: "100%", textAlign: "left",
+                              padding: "10px 14px", fontSize: 13, color: "#333",
+                              background: "#fff", border: "none",
+                              borderBottom: i < arr.length - 1 ? "0.5px solid #f0f0f0" : "none",
+                              cursor: "pointer", fontFamily: "inherit",
+                            }}
+                          >{item.label}</button>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
               </div>
             </div>
             <p style={{ fontSize: 13, color: "#888", marginBottom: 20, marginTop: 4 }}>
@@ -574,9 +618,6 @@ export default function SupervisorDashboard() {
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
                   <h2 style={{ fontSize: 16, fontWeight: 500, margin: 0 }}>All Issues</h2>
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    <ForemanManagePanel onChanged={loadForemen} />
-                    <SupervisorManagePanel onChanged={() => {}} />
-                    <IssueCategoryManagePanel onChanged={() => {}} />
                     <button onClick={() => handleExport("issues")} disabled={exporting} style={{
                       padding: "8px 16px", background: "#fff", color: "#555",
                       border: "1px solid #ddd", borderRadius: 8, fontSize: 13,
@@ -828,12 +869,6 @@ export default function SupervisorDashboard() {
                         {exporting ? "Exporting…" : "↓ Export Data"}
                       </button>
                     )}
-                    {activeOeeTab === "workorders" && (
-                      <>
-                        <TruckTypeManagePanel onChanged={() => {}} />
-                        <DefectTypeManagePanel onChanged={() => {}} />
-                      </>
-                    )}
                     <button onClick={() => setHuddleOpen(true)} style={{
                       padding: "7px 16px", fontSize: 13, fontWeight: 500,
                       border: "1px solid #1D9E75", borderRadius: 8,
@@ -841,7 +876,6 @@ export default function SupervisorDashboard() {
                       cursor: "pointer", fontFamily: "inherit",
                       display: "flex", alignItems: "center", gap: 6,
                     }}>▶ Start Huddle</button>
-                    <OEEGoalsPanel onSaved={loadOEE} />
                   </div>
                 </div>
 
