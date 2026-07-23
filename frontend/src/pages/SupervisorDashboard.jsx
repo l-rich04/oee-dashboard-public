@@ -8,6 +8,7 @@ import IssueEditPanel from "../components/IssueEditPanel";
 import MassAddPanel from "../components/MassAddPanel";
 import SupervisorLogin from "../components/SupervisorLogin";
 import OEEMetrics from "../components/OEEMetrics";
+import InsightsPanel from "../components/InsightsPanel";
 import OEEGoalsPanel from "../components/OEEGoalsPanel";
 import WorkOrderPanel from "../components/WorkOrderPanel";
 import WeeklyLaborPanel from "../components/WeeklyLaborPanel";
@@ -549,13 +550,13 @@ export default function SupervisorDashboard() {
                         overflow: "hidden",
                       }}>
                         {[
-                          { label: "Edit Goals",               onClick: () => goalsRef.current?.open() },
-                          { label: "Manage Foremen",           onClick: () => foremanRef.current?.open() },
-                          { label: "Manage Supervisors",       onClick: () => supervisorRef.current?.open() },
-                          { label: "Manage Truck Types",       onClick: () => truckTypeRef.current?.open() },
-                          { label: "Manage Defect Types",      onClick: () => defectTypeRef.current?.open() },
-                          { label: "Manage Issue Categories",  onClick: () => categoryRef.current?.open() },
-                          { label: "Change Password",          onClick: () => passwordRef.current?.open() },
+                          { label: "Edit goals",               onClick: () => goalsRef.current?.open() },
+                          { label: "Manage foremen",           onClick: () => foremanRef.current?.open() },
+                          { label: "Manage supervisors",       onClick: () => supervisorRef.current?.open() },
+                          { label: "Manage truck types",       onClick: () => truckTypeRef.current?.open() },
+                          { label: "Manage defect types",      onClick: () => defectTypeRef.current?.open() },
+                          { label: "Manage issue categories",  onClick: () => categoryRef.current?.open() },
+                          { label: "Change password",          onClick: () => passwordRef.current?.open() },
                         ].map((item, i, arr) => (
                           <button
                             key={item.label}
@@ -840,7 +841,7 @@ export default function SupervisorDashboard() {
               <>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 10 }}>
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    {["overview", "workorders", "downtime"].map(tab => (
+                    {["overview", "workorders", "downtime", "insights"].map(tab => (
                       <button key={tab} onClick={() => setActiveOeeTab(tab)} style={{
                         padding: "7px 16px", fontSize: 13, fontWeight: 500,
                         border: `1px solid ${activeOeeTab === tab ? "#1D9E75" : "#eee"}`,
@@ -849,7 +850,7 @@ export default function SupervisorDashboard() {
                         color: activeOeeTab === tab ? "#0F6E56" : "#888",
                         display: "flex", alignItems: "center", gap: 6,
                       }}>
-                        {tab === "overview" ? "Overview" : tab === "workorders" ? "Work Orders" : "Availability"}
+                        {tab === "overview" ? "Overview" : tab === "workorders" ? "Work Orders" : tab === "downtime" ? "Availability" : "Insights"}
                         {tab === "workorders" && unreadWOCount > 0 && (
                           <span style={{ background: "#E24B4A", color: "#fff", fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 10, lineHeight: "16px" }}>
                             {unreadWOCount}
@@ -893,6 +894,7 @@ export default function SupervisorDashboard() {
                   />
                 )}
                 {activeOeeTab === "downtime" && <WeeklyLaborPanel onSaved={loadOEE} />}
+                {activeOeeTab === "insights" && <InsightsPanel summary={oeeSummary} />}
 
                 {huddleOpen && (
                   <MorningHuddle

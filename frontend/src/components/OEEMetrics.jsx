@@ -72,7 +72,7 @@ export default function OEEMetrics({ summary }) {
     getGoalHistory()
       .then(data => setGoalHistory(data))
       .catch(err => console.error("goal history error:", err));
-  }, []);
+  }, [summary]);
 
   const [period, setPeriod]     = useState("week");
   const [cardYear, setCardYear] = useState(lastHistoryYear);
@@ -830,4 +830,3 @@ export default function OEEMetrics({ summary }) {
     </div>
   );
 }
-
