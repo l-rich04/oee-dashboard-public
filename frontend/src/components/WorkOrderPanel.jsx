@@ -66,7 +66,7 @@ function emptyDefectRow() {
 
 
 
-export default function WorkOrderPanel({ onSaved, unreadIds = new Set(), onMarkRead }) {
+export default function WorkOrderPanel({ onSaved, unreadIds = new Set(), onMarkRead, jumpToWorkOrderId = null, onJumpHandled }) {
   const today = new Date();
 
   const [workOrders, setWorkOrders]               = useState([]);
@@ -100,6 +100,7 @@ export default function WorkOrderPanel({ onSaved, unreadIds = new Set(), onMarkR
   const [confirmDeleteYear, setConfirmDeleteYear] = useState(false);
   const [deletingYear, setDeletingYear]           = useState(false);
   const [markingWeekRead, setMarkingWeekRead]     = useState(null);
+  const [highlightedWoId, setHighlightedWoId]     = useState(null);
 
   // Ref-based locks — these update instantly (no waiting for a re-render),
   // unlike the `saving`/`defectSaving` state flags, which only block the *next*
@@ -136,6 +137,28 @@ export default function WorkOrderPanel({ onSaved, unreadIds = new Set(), onMarkR
     const years = [...new Set(workOrders.map(wo => new Date(wo.week_start + "T12:00:00").getFullYear()))].sort((a, b) => b - a);
     if (!years.includes(selectedYear)) setSelectedYear(years[0]);
   }, [workOrders]);
+
+  // Reacts to a search-result jump — expands the correct year/week, then
+  // scrolls to and briefly highlights the exact work order row so there's
+  // no ambiguity about which one was searched for, even inside a week with
+  // many rows.
+  useEffect(() => {
+    if (jumpToWorkOrderId == null) return;
+    const wo = workOrders.find(w => w.id === jumpToWorkOrderId);
+    if (!wo) return;
+
+    setShowHistory(true);
+    setSelectedYear(new Date(wo.week_start + "T12:00:00").getFullYear());
+    setExpanded(prev => ({ ...prev, [wo.week_start]: true }));
+    setHighlightedWoId(wo.id);
+
+    setTimeout(() => {
+      document.getElementById(`wo-row-${wo.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 150);
+    setTimeout(() => setHighlightedWoId(null), 2500);
+
+    onJumpHandled?.();
+  }, [jumpToWorkOrderId, workOrders]);
 
   async function loadWODefects(woId) {
     const data = await getWorkOrderDefects(woId);
@@ -893,7 +916,7 @@ export default function WorkOrderPanel({ onSaved, unreadIds = new Set(), onMarkR
                     <tbody>
                       {wos.map(wo => (
                         <React.Fragment key={wo.id}>
-                          <tr style={{ borderBottom: "0.5px solid #f5f5f5", background: "white" }}>
+                          <tr id={`wo-row-${wo.id}`} style={{ borderBottom: "0.5px solid #f5f5f5", background: highlightedWoId === wo.id ? "#E6F1FB" : "white", transition: "background 0.4s" }}>
                             <td style={{ padding: "6px 16px" }}>
                               {editingId === wo.id
                                 ? <input type="text" value={editValues.work_order_num ?? ""} onChange={e => setEditValues(prev => ({ ...prev, work_order_num: e.target.value.toUpperCase() }))} style={{ ...inputStyle, width: 120 }} />

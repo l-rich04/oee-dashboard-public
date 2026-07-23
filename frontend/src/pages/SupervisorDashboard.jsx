@@ -171,6 +171,10 @@ export default function SupervisorDashboard() {
   const [alerts, setAlerts]                   = useState([]);
   const [dismissedAlerts, setDismissedAlerts] = useState(new Set());
   const [settingsOpen, setSettingsOpen]       = useState(false);
+  const [searchQuery, setSearchQuery]         = useState("");
+  const [searchOpen, setSearchOpen]           = useState(false);
+  const [highlightedIssueId, setHighlightedIssueId] = useState(null);
+  const [jumpToWorkOrderId, setJumpToWorkOrderId] = useState(null);
 
   const knownIssueIds       = useRef(null);
   const knownIssueSnapshots = useRef(null);
@@ -482,6 +486,55 @@ export default function SupervisorDashboard() {
   const sortedForemen       = sortForemen(Object.keys(grouped));
   const sortedSolvedForemen = sortForemen(Object.keys(solvedGrouped));
 
+  // Global search — matches issues by id/description/foreman/category, and
+  // work orders by number/truck type. Capped at 6 results per category so
+  // the dropdown stays scannable rather than becoming a second full list.
+  const searchResults = (() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return { issues: [], workOrders: [] };
+
+    const matchedIssues = issues.filter(i =>
+      String(i.id).includes(q) ||
+      i.description.toLowerCase().includes(q) ||
+      i.foreman_name.toLowerCase().includes(q) ||
+      i.category.toLowerCase().includes(q)
+    ).slice(0, 6);
+
+    const matchedWorkOrders = workOrders.filter(wo =>
+      wo.work_order_num.toLowerCase().includes(q) ||
+      wo.truck_type.toLowerCase().includes(q)
+    ).slice(0, 6);
+
+    return { issues: matchedIssues, workOrders: matchedWorkOrders };
+  })();
+
+  function jumpToIssue(issue) {
+    setActiveTab("issues");
+    if (issue.status === "solved") {
+      setShowSolved(true);
+      setExpandedForemen(prev => ({ ...prev, [issue.foreman_name + "_solved"]: true }));
+    } else {
+      setExpandedForemen(prev => ({ ...prev, [issue.foreman_name]: true }));
+    }
+    setSearchQuery("");
+    setSearchOpen(false);
+    setHighlightedIssueId(issue.id);
+    // Wait a beat for the tab switch + group expansion to actually render,
+    // then scroll the specific row into view.
+    setTimeout(() => {
+      document.getElementById(`issue-row-${issue.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 150);
+    setTimeout(() => setHighlightedIssueId(null), 2500);
+  }
+
+  function jumpToWorkOrder(wo) {
+    setActiveTab("oee");
+    setActiveOeeTab("workorders");
+    setSearchQuery("");
+    setSearchOpen(false);
+    setJumpToWorkOrderId(wo.id);
+  }
+
   if (!authed) return (
     <>
       <Helmet><title>Supervisor Dashboard</title></Helmet>
@@ -530,6 +583,75 @@ export default function SupervisorDashboard() {
                     Notifications on
                   </span>
                 )}
+
+                {/* Global search — issues and work orders */}
+                <div style={{ position: "relative" }}>
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={e => { setSearchQuery(e.target.value); setSearchOpen(true); }}
+                    onFocus={() => setSearchOpen(true)}
+                    onKeyDown={e => {
+                      if (e.key !== "Enter") return;
+                      if (searchResults.issues.length > 0) jumpToIssue(searchResults.issues[0]);
+                      else if (searchResults.workOrders.length > 0) jumpToWorkOrder(searchResults.workOrders[0]);
+                    }}
+                    placeholder="Search issues, work orders…"
+                    style={{
+                      width: 220, padding: "7px 10px", fontSize: 12,
+                      border: "0.5px solid #ddd", borderRadius: 8,
+                      fontFamily: "inherit", outline: "none",
+                    }}
+                  />
+
+                  {searchOpen && searchQuery.trim() && (
+                    <>
+                      <div onClick={() => setSearchOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 999 }} />
+                      <div style={{
+                        position: "absolute", top: "calc(100% + 6px)", left: 0,
+                        background: "#fff", border: "0.5px solid #ddd", borderRadius: 10,
+                        boxShadow: "0 8px 24px rgba(0,0,0,0.12)", width: 320, zIndex: 1000,
+                        maxHeight: 360, overflowY: "auto",
+                      }}>
+                        {searchResults.issues.length === 0 && searchResults.workOrders.length === 0 && (
+                          <p style={{ fontSize: 12, color: "#aaa", padding: "14px", margin: 0, textAlign: "center" }}>No matches</p>
+                        )}
+
+                        {searchResults.issues.length > 0 && (
+                          <div>
+                            <p style={{ fontSize: 10, color: "#aaa", textTransform: "uppercase", letterSpacing: "0.5px", margin: 0, padding: "10px 14px 4px" }}>Issues</p>
+                            {searchResults.issues.map(i => (
+                              <button key={i.id} onClick={() => jumpToIssue(i)} style={{
+                                display: "block", width: "100%", textAlign: "left",
+                                padding: "8px 14px", fontSize: 12, color: "#333",
+                                background: "#fff", border: "none", borderTop: "0.5px solid #f5f5f5",
+                                cursor: "pointer", fontFamily: "inherit",
+                              }}>
+                                <span style={{ fontWeight: 500 }}>#{i.id}</span> — {i.foreman_name} · {i.description.slice(0, 40)}{i.description.length > 40 ? "…" : ""}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+
+                        {searchResults.workOrders.length > 0 && (
+                          <div>
+                            <p style={{ fontSize: 10, color: "#aaa", textTransform: "uppercase", letterSpacing: "0.5px", margin: 0, padding: "10px 14px 4px" }}>Work orders</p>
+                            {searchResults.workOrders.map(wo => (
+                              <button key={wo.id} onClick={() => jumpToWorkOrder(wo)} style={{
+                                display: "block", width: "100%", textAlign: "left",
+                                padding: "8px 14px", fontSize: 12, color: "#333",
+                                background: "#fff", border: "none", borderTop: "0.5px solid #f5f5f5",
+                                cursor: "pointer", fontFamily: "inherit",
+                              }}>
+                                <span style={{ fontWeight: 500 }}>{wo.work_order_num}</span> — {wo.truck_type} · {wo.total_defects} defects
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
 
                 {/* Help — reopens the "How this works" guide anytime */}
                 <button
@@ -735,7 +857,11 @@ export default function SupervisorDashboard() {
                           </thead>
                           <tbody>
                             {foremanIssues.map(issue => (
-                              <tr key={issue.id} style={{ borderBottom: "0.5px solid #f5f5f5", background: checkedIds.has(issue.id) ? "#FFF5F5" : !issue.is_read ? "#FFFBF0" : "white" }}>
+                              <tr id={`issue-row-${issue.id}`} key={issue.id} style={{
+                                borderBottom: "0.5px solid #f5f5f5",
+                                background: highlightedIssueId === issue.id ? "#E6F1FB" : checkedIds.has(issue.id) ? "#FFF5F5" : !issue.is_read ? "#FFFBF0" : "white",
+                                transition: "background 0.4s",
+                              }}>
                                 <td style={{ padding: "8px 12px" }}>
                                   <input type="checkbox" checked={checkedIds.has(issue.id)} onChange={() => toggleCheck(issue.id)} style={{ cursor: "pointer", accentColor: "#E24B4A" }} />
                                 </td>
@@ -823,7 +949,11 @@ export default function SupervisorDashboard() {
                                 </thead>
                                 <tbody>
                                   {foremanSolved.map(issue => (
-                                    <tr key={issue.id} style={{ borderBottom: "0.5px solid #f5f5f5", background: checkedIds.has(issue.id) ? "#FFF5F5" : "#fafafa" }}>
+                                    <tr id={`issue-row-${issue.id}`} key={issue.id} style={{
+                                      borderBottom: "0.5px solid #f5f5f5",
+                                      background: highlightedIssueId === issue.id ? "#E6F1FB" : checkedIds.has(issue.id) ? "#FFF5F5" : "#fafafa",
+                                      transition: "background 0.4s",
+                                    }}>
                                       <td style={{ padding: "8px 12px" }}><input type="checkbox" checked={checkedIds.has(issue.id)} onChange={() => toggleCheck(issue.id)} style={{ cursor: "pointer", accentColor: "#E24B4A" }} /></td>
                                       <td style={tdStyle}>#{issue.id}</td>
                                       <td style={tdStyle}>{issue.issue_type === "part" ? "Part Issue" : "Process Issue"}</td>
@@ -899,6 +1029,8 @@ export default function SupervisorDashboard() {
                   <WorkOrderPanel
                     onSaved={() => { loadOEE(); loadWorkOrders(true); }}
                     unreadIds={new Set(workOrders.filter(wo => !wo.is_read).map(wo => wo.id))}
+                    jumpToWorkOrderId={jumpToWorkOrderId}
+                    onJumpHandled={() => setJumpToWorkOrderId(null)}
                     onMarkRead={async (id) => {
                       await markWorkOrderRead(id);
                       readWorkOrderIds.current.add(id);
