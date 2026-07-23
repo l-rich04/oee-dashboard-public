@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { getIssues, markIssueRead, addIssueUpdate, updateIssue, getSupervisors, getIssueUpdates } from "../api/issues";
+import { LineChart, Line, XAxis, ReferenceLine, ResponsiveContainer } from "recharts";
+import { getIssues, markIssueRead, addIssueUpdate, updateIssue, getSupervisors, getIssueUpdates, getAllDefectBreakdowns } from "../api/issues";
 
 function getLastWeekStart() {
   const d = new Date();
@@ -120,6 +121,11 @@ export default function MorningHuddle({ summary, onClose, onSaved }) {
   const [newBizAdded, setNewBizAdded]   = useState({});
   const [supervisors, setSupervisors]   = useState([]);
   const [issueUpdatesList, setIssueUpdatesList] = useState([]);
+  const [defectBreakdown, setDefectBreakdown] = useState([]);
+
+  useEffect(() => {
+    getAllDefectBreakdowns().then(setDefectBreakdown).catch(err => console.error("Failed to load defect breakdown:", err));
+  }, []);
 
   useEffect(() => {
     getIssues({}).then(data => {
@@ -307,6 +313,79 @@ export default function MorningHuddle({ summary, onClose, onSaved }) {
   const reworkPct   = totalHours > 0 ? ((reworkHours / totalHours) * 100).toFixed(1) : "—";
   const reworkColor = parseFloat(reworkPct) > 10 ? "#E24B4A" : parseFloat(reworkPct) > 5 ? "#fff" : "#1D9E75";
 
+  // --- DPU trend forecast (compact version of the same idea in the
+  // Insights tab) — simple least-squares trend over recent weeks,
+  // projected a few weeks forward against the quarterly goal. ---
+  const isValidWeek = (w) => /^\d{4}-\d{2}-\d{2}$/.test(w?.week ?? "");
+  const FORECAST_WEEKS_BACK    = 8;
+  const FORECAST_WEEKS_FORWARD = 4;
+
+  function linearRegression(points) {
+    const n = points.length;
+    if (n < 2) return null;
+    const sumX  = points.reduce((s, p) => s + p.x, 0);
+    const sumY  = points.reduce((s, p) => s + p.y, 0);
+    const sumXY = points.reduce((s, p) => s + p.x * p.y, 0);
+    const sumXX = points.reduce((s, p) => s + p.x * p.x, 0);
+    const denom = n * sumXX - sumX * sumX;
+    if (denom === 0) return null;
+    return { slope: (n * sumXY - sumX * sumY) / denom, intercept: (sumY - (n * sumXY - sumX * sumY) / denom * sumX) / n };
+  }
+
+  const forecastChart = (() => {
+    const recent = allHistory.filter(w => w.trucks > 0 && isValidWeek(w)).slice(-FORECAST_WEEKS_BACK);
+    if (recent.length < 3) return null;
+
+    const points = recent.map((w, i) => ({ x: i, y: w.dpu }));
+    const reg = linearRegression(points);
+    if (!reg) return null;
+
+    const rows = recent.map(w => ({ week: w.week, actual: w.dpu, forecast: null }));
+    rows[rows.length - 1].forecast = rows[rows.length - 1].actual;
+
+    const lastActual = rows[rows.length - 1].actual;
+    const quarterlyGoal = goals.quarterly_dpu_goal ?? null;
+    const currentlyMeetingGoal = quarterlyGoal != null ? lastActual <= quarterlyGoal : null;
+
+    let crossesAt = null;
+    for (let i = 1; i <= FORECAST_WEEKS_FORWARD; i++) {
+      const x = recent.length - 1 + i;
+      const predicted = Math.max(0, reg.slope * x + reg.intercept);
+      rows.push({ week: `+${i}wk`, actual: null, forecast: Math.round(predicted * 100) / 100 });
+      if (quarterlyGoal != null && crossesAt === null) {
+        const predictedMeets = predicted <= quarterlyGoal;
+        if (predictedMeets !== currentlyMeetingGoal) crossesAt = i;
+      }
+    }
+
+    const direction = reg.slope < 0 ? "improving" : reg.slope > 0 ? "worsening" : "flat";
+    let message = direction === "improving" ? "DPU is trending down"
+      : direction === "worsening" ? "DPU is trending up"
+      : "DPU is holding roughly flat";
+    if (quarterlyGoal != null) {
+      if (currentlyMeetingGoal && crossesAt == null) message += " — on pace to keep meeting the quarterly goal.";
+      else if (currentlyMeetingGoal && crossesAt != null) message += ` — at this rate it's projected to exceed the quarterly goal in about ${crossesAt} week${crossesAt !== 1 ? "s" : ""}.`;
+      else if (!currentlyMeetingGoal && crossesAt != null) message += ` — projected to meet the quarterly goal in about ${crossesAt} week${crossesAt !== 1 ? "s" : ""}.`;
+      else message += ` — currently above the quarterly goal and not on pace to meet it within the next ${FORECAST_WEEKS_FORWARD} weeks.`;
+    }
+
+    return { rows, message, quarterlyGoal };
+  })();
+
+  // --- Top 3 defects from last week, from the same breakdown data the
+  // Work Orders tab's Pareto chart uses. ---
+  const topDefectsLastWeek = (() => {
+    if (!currWeekStr) return [];
+    const totals = {};
+    defectBreakdown
+      .filter(d => d.week_start === currWeekStr)
+      .forEach(d => { totals[d.defect_type] = (totals[d.defect_type] || 0) + d.quantity; });
+    return Object.entries(totals)
+      .map(([name, qty]) => ({ name, qty }))
+      .sort((a, b) => b.qty - a.qty)
+      .slice(0, 3);
+  })();
+
   const currentIssue = issues[issueIdx] ?? null;
   const foremenAll   = ["Rick","Todd","Duey","Jordan","Dan","Joel","Willard","Eric","Brian","Ralph","QC","Others"];
 
@@ -483,6 +562,45 @@ export default function MorningHuddle({ summary, onClose, onSaved }) {
                   </div>
                 </div>
               ))}
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 10, marginBottom: 10 }}>
+              <div style={s.card}>
+                <p style={s.label}>DPU Trend</p>
+                {forecastChart == null ? (
+                  <p style={{ fontSize: 12, color: "#fff", margin: 0 }}>Not enough weekly data yet to forecast a trend.</p>
+                ) : (
+                  <>
+                    <ResponsiveContainer width="100%" height={90}>
+                      <LineChart data={forecastChart.rows} margin={{ top: 18, right: 10, left: 12, bottom: 6 }}>
+                        <XAxis dataKey="week" hide />
+                        {forecastChart.quarterlyGoal != null && (
+                          <ReferenceLine y={forecastChart.quarterlyGoal} stroke="#666" strokeDasharray="3 3" />
+                        )}
+                        <Line type="monotone" dataKey="actual" stroke="#378ADD" strokeWidth={2} dot={{ r: 2, fill: "#378ADD" }} connectNulls={false} label={{ position: "top", fontSize: 9, fill: "#fff" }} />
+                        <Line type="monotone" dataKey="forecast" stroke="#378ADD" strokeWidth={2} strokeDasharray="5 4" dot={{ r: 2, fill: "#378ADD" }} connectNulls={true} label={{ position: "top", fontSize: 9, fill: "#888" }} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                    <p style={{ fontSize: 11, color: "#fff", margin: "6px 0 0" }}>{forecastChart.message}</p>
+                  </>
+                )}
+              </div>
+
+              <div style={s.card}>
+                <p style={s.label}>Top 3 Defects Last Week</p>
+                {topDefectsLastWeek.length === 0 ? (
+                  <p style={{ fontSize: 12, color: "#fff", margin: 0 }}>No defects logged last week.</p>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 4 }}>
+                    {topDefectsLastWeek.map(d => (
+                      <div key={d.name} style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                        <span style={{ fontSize: 13, color: "#fff" }}>{d.name}</span>
+                        <span style={{ fontSize: 13, fontWeight: 500, color: "#E24B4A" }}>{d.qty}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
 
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>

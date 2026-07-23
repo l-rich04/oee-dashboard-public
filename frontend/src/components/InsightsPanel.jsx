@@ -157,13 +157,13 @@ export default function InsightsPanel({ summary }) {
         ) : (
           <>
             <ResponsiveContainer width="100%" height={220}>
-              <LineChart data={forecastData.rows} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
+              <LineChart data={forecastData.rows} margin={{ top: 10, right: 45, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                 <XAxis dataKey="week" tick={{ fontSize: 10 }} />
-                <YAxis tick={{ fontSize: 10 }} />
+                <YAxis tick={{ fontSize: 10 }} domain={[0, dataMax => Math.max(dataMax, quarterlyGoal ?? 0) * 1.15]} />
                 <Tooltip content={<ForecastTooltip />} />
                 {quarterlyGoal != null && (
-                  <ReferenceLine y={quarterlyGoal} stroke="#888" strokeDasharray="4 4" label={{ value: "Goal", fontSize: 10, fill: "#888", position: "right" }} />
+                  <ReferenceLine y={quarterlyGoal} stroke="#888" strokeDasharray="4 4" label={{ value: "Goal", fontSize: 10, fill: "#888", position: "insideTopRight" }} />
                 )}
                 <Line type="monotone" dataKey="actual" name="Actual" stroke="#378ADD" strokeWidth={2} dot={{ r: 3 }} connectNulls={false} />
                 <Line type="monotone" dataKey="forecast" name="Forecast" stroke="#378ADD" strokeWidth={2} strokeDasharray="5 4" dot={{ r: 3 }} connectNulls={true} />
