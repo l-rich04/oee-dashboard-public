@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { LineChart, Line, XAxis, ReferenceLine, ResponsiveContainer } from "recharts";
+import { LineChart, Line, XAxis, YAxis, ReferenceLine, ResponsiveContainer } from "recharts";
 import { getIssues, markIssueRead, addIssueUpdate, updateIssue, getSupervisors, getIssueUpdates, getAllDefectBreakdowns } from "../api/issues";
 
 function getLastWeekStart() {
@@ -369,7 +369,10 @@ export default function MorningHuddle({ summary, onClose, onSaved }) {
       else message += ` — currently above the quarterly goal and not on pace to meet it within the next ${FORECAST_WEEKS_FORWARD} weeks.`;
     }
 
-    return { rows, message, quarterlyGoal };
+    const dataMax = Math.max(...rows.map(r => r.actual ?? r.forecast ?? 0));
+    const yAxisMax = Math.max(dataMax, quarterlyGoal ?? 0) * 1.15;
+
+    return { rows, message, quarterlyGoal, yAxisMax };
   })();
 
   // --- Top 3 defects from last week, from the same breakdown data the
@@ -572,10 +575,16 @@ export default function MorningHuddle({ summary, onClose, onSaved }) {
                 ) : (
                   <>
                     <ResponsiveContainer width="100%" height={90}>
-                      <LineChart data={forecastChart.rows} margin={{ top: 18, right: 10, left: 12, bottom: 6 }}>
+                      <LineChart data={forecastChart.rows} margin={{ top: 18, right: 10, left: 0, bottom: 6 }}>
                         <XAxis dataKey="week" hide />
+                        <YAxis
+                          width={28}
+                          tick={{ fontSize: 9, fill: "#fff" }}
+                          tickFormatter={v => Math.round(v * 100) / 100}
+                          domain={[0, forecastChart.yAxisMax]}
+                        />
                         {forecastChart.quarterlyGoal != null && (
-                          <ReferenceLine y={forecastChart.quarterlyGoal} stroke="#666" strokeDasharray="3 3" />
+                          <ReferenceLine y={forecastChart.quarterlyGoal} stroke="#666" strokeDasharray="3 3" label={{ value: `Goal: ${forecastChart.quarterlyGoal}`, fontSize: 9, fill: "#888", position: "insideTopRight" }} />
                         )}
                         <Line type="monotone" dataKey="actual" stroke="#378ADD" strokeWidth={2} dot={{ r: 2, fill: "#378ADD" }} connectNulls={false} label={{ position: "top", fontSize: 9, fill: "#fff" }} />
                         <Line type="monotone" dataKey="forecast" stroke="#378ADD" strokeWidth={2} strokeDasharray="5 4" dot={{ r: 2, fill: "#378ADD" }} connectNulls={true} label={{ position: "top", fontSize: 9, fill: "#888" }} />
