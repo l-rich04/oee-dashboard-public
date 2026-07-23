@@ -9,6 +9,7 @@ import MassAddPanel from "../components/MassAddPanel";
 import SupervisorLogin from "../components/SupervisorLogin";
 import OEEMetrics from "../components/OEEMetrics";
 import InsightsPanel from "../components/InsightsPanel";
+import HelpGuidePanel from "../components/HelpGuidePanel";
 import OEEGoalsPanel from "../components/OEEGoalsPanel";
 import WorkOrderPanel from "../components/WorkOrderPanel";
 import WeeklyLaborPanel from "../components/WeeklyLaborPanel";
@@ -188,6 +189,7 @@ export default function SupervisorDashboard() {
   const categoryRef   = useRef(null);
   const passwordRef   = useRef(null);
   const goalsRef      = useRef(null);
+  const helpRef       = useRef(null);
 
   useEffect(() => {
     if (!authed) return;
@@ -505,6 +507,7 @@ export default function SupervisorDashboard() {
             <IssueCategoryManagePanel ref={categoryRef} onChanged={() => {}} />
             <PasswordChangePanel ref={passwordRef} />
             <OEEGoalsPanel ref={goalsRef} onSaved={loadOEE} />
+            <HelpGuidePanel ref={helpRef} />
 
             {/* HEADER */}
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
@@ -527,6 +530,17 @@ export default function SupervisorDashboard() {
                     Notifications on
                   </span>
                 )}
+
+                {/* Help — reopens the "How this works" guide anytime */}
+                <button
+                  onClick={() => helpRef.current?.open()}
+                  title="How this works"
+                  style={{
+                    width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center",
+                    border: "0.5px solid #ddd", borderRadius: 8, background: "#fff",
+                    cursor: "pointer", fontSize: 14, fontWeight: 500, color: "#555",
+                  }}
+                >?</button>
 
                 {/* Settings gear — consolidates every admin/config action into one place */}
                 <div style={{ position: "relative" }}>
