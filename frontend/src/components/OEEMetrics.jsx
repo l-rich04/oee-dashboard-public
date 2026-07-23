@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
 import {
   LineChart, Line, XAxis, YAxis, Tooltip,
-  ResponsiveContainer, ReferenceLine, ComposedChart, Bar, Legend,
+  ResponsiveContainer, ReferenceLine, ReferenceArea, ComposedChart, Bar, Legend,
 } from "recharts";
 import { getGoalHistory } from "../api/issues";
 
@@ -59,7 +59,12 @@ export default function OEEMetrics({ summary }) {
   const currentMonth   = today.getMonth();
   const currentQuarter = Math.floor(currentMonth / 3);
 
-  const allHistory      = summary.dpu_history ?? [];
+  // Filter out any malformed entries (e.g. a leftover "string" placeholder
+  // from manual /docs testing) right here, so every calculation downstream
+  // — the year dropdown, filtered history, goal tracking, all of it —
+  // never has to deal with an invalid date individually.
+  const isValidWeek = (w) => /^\d{4}-\d{2}-\d{2}$/.test(w?.week ?? "");
+  const allHistory      = (summary.dpu_history ?? []).filter(isValidWeek);
   const indirectHistory = summary.indirect_labor_history ?? [];
 
   const lastHistoryEntry   = allHistory[allHistory.length - 1];
@@ -689,18 +694,31 @@ export default function OEEMetrics({ summary }) {
 
         {filteredHistory.length > 0 ? (
           <>
-            <ResponsiveContainer width="100%" height={160}>
-              <LineChart data={filteredHistory}>
-                <XAxis dataKey="week" tick={{ fontSize: 10 }} angle={-25} textAnchor="end" interval={0} />
-                <YAxis tick={{ fontSize: 11 }} />
-                <Tooltip />
-                <ReferenceLine y={chartGoal.annual_dpu_goal} stroke="#D4A017" strokeDasharray="4 3"
-                  label={{ value: `Annual: ${chartGoal.annual_dpu_goal}`, position: "insideTopRight", fontSize: 10, fill: "#D4A017" }} />
-                <ReferenceLine y={chartGoal.quarterly_dpu_goal} stroke="#854F0B" strokeDasharray="4 3"
-                  label={{ value: `Quarterly: ${chartGoal.quarterly_dpu_goal}`, position: "insideBottomRight", fontSize: 10, fill: "#854F0B" }} />
-                <Line type="monotone" dataKey="dpu" stroke="#378ADD" strokeWidth={2} dot={{ r: 4 }} />
-              </LineChart>
-            </ResponsiveContainer>
+            {(() => {
+              // Zones: green = at/under goal, amber = up to 1.5x goal,
+              // red = anything worse. Computed fresh each render since the
+              // goal (and therefore the zones) changes with the filter.
+              const goalVal   = chartGoal.quarterly_dpu_goal;
+              const dataMax   = Math.max(...filteredHistory.map(w => w.dpu), goalVal * 1.5);
+              const chartMax  = dataMax * 1.15;
+              return (
+                <ResponsiveContainer width="100%" height={160}>
+                  <LineChart data={filteredHistory}>
+                    <XAxis dataKey="week" tick={{ fontSize: 10 }} angle={-25} textAnchor="end" interval={0} />
+                    <YAxis tick={{ fontSize: 11 }} domain={[0, Math.round(chartMax * 100) / 100]} />
+                    <Tooltip />
+                    <ReferenceArea y1={0} y2={goalVal} fill="#C0DD97" fillOpacity={1} />
+                    <ReferenceArea y1={goalVal} y2={goalVal * 1.5} fill="#FAC775" fillOpacity={1} />
+                    <ReferenceArea y1={goalVal * 1.5} y2={chartMax} fill="#F7C1C1" fillOpacity={1} />
+                    <ReferenceLine y={chartGoal.annual_dpu_goal} stroke="#D4A017" strokeDasharray="4 3"
+                      label={{ value: `Annual: ${chartGoal.annual_dpu_goal}`, position: "insideTopRight", fontSize: 10, fill: "#D4A017" }} />
+                    <ReferenceLine y={chartGoal.quarterly_dpu_goal} stroke="#854F0B" strokeDasharray="4 3"
+                      label={{ value: `Quarterly: ${chartGoal.quarterly_dpu_goal}`, position: "insideBottomRight", fontSize: 10, fill: "#854F0B" }} />
+                    <Line type="monotone" dataKey="dpu" stroke="#378ADD" strokeWidth={2} dot={{ r: 4 }} />
+                  </LineChart>
+                </ResponsiveContainer>
+              );
+            })()}
 
             <div style={{ marginTop: 12, borderTop: "0.5px solid #f0f0f0", paddingTop: 10 }}>
               <div style={{ maxHeight: 320, overflowY: "auto" }}>
@@ -739,6 +757,11 @@ export default function OEEMetrics({ summary }) {
           <span style={{ color: "#1D9E75" }}>↓ Improved</span>
           <span style={{ color: "#A32D2D" }}>↑ Worsened</span>
           <span style={{ color: "#888" }}>→ No change</span>
+        </div>
+        <div style={{ marginTop: 6, fontSize: 10, color: "#aaa", display: "flex", gap: 12, flexWrap: "wrap" }}>
+          <span><span style={{ display: "inline-block", width: 10, height: 10, background: "#C0DD97", marginRight: 4, verticalAlign: "-1px" }}></span>At/under goal</span>
+          <span><span style={{ display: "inline-block", width: 10, height: 10, background: "#FAC775", marginRight: 4, verticalAlign: "-1px" }}></span>Up to 1.5x goal</span>
+          <span><span style={{ display: "inline-block", width: 10, height: 10, background: "#F7C1C1", marginRight: 4, verticalAlign: "-1px" }}></span>Over 1.5x goal</span>
         </div>
       </div>
 
