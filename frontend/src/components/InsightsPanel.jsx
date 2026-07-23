@@ -164,7 +164,7 @@ export default function InsightsPanel({ summary }) {
               <LineChart data={forecastData.rows} margin={{ top: 10, right: 45, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                 <XAxis dataKey="week" tick={{ fontSize: 10 }} />
-                <YAxis tick={{ fontSize: 10 }} domain={[0, forecastData.yAxisMax]} />
+                <YAxis tick={{ fontSize: 10 }} domain={[0, forecastData.yAxisMax]} tickFormatter={v => Math.round(v * 100) / 100} />
                 <Tooltip content={<ForecastTooltip />} />
                 {quarterlyGoal != null && (
                   <ReferenceLine y={quarterlyGoal} stroke="#888" strokeDasharray="4 4" label={{ value: `Goal: ${quarterlyGoal}`, fontSize: 10, fill: "#888", position: "insideTopRight" }} />
