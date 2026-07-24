@@ -498,12 +498,12 @@ export default function SupervisorDashboard() {
       i.description.toLowerCase().includes(q) ||
       i.foreman_name.toLowerCase().includes(q) ||
       i.category.toLowerCase().includes(q)
-    ).slice(0, 6);
+    );
 
     const matchedWorkOrders = workOrders.filter(wo =>
       wo.work_order_num.toLowerCase().includes(q) ||
       wo.truck_type.toLowerCase().includes(q)
-    ).slice(0, 6);
+    );
 
     return { issues: matchedIssues, workOrders: matchedWorkOrders };
   })();
